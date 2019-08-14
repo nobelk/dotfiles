@@ -1,4 +1,6 @@
-" Vim only
+" Vimrc for Ubuntu console - compiled by nobel khandaker
+
+" use vim mode instead of pure vi
 set nocompatible
 
 " display settings
@@ -17,7 +19,7 @@ set nowritebackup
 set backspace=indent,eol,start
 set bs=2
 set expandtab
-set shiftwidth=4
+set nojoinspaces
 set softtabstop=4
 set tabstop=4
 set textwidth=80
@@ -32,23 +34,29 @@ set smartcase
 noremap n nzz
 noremap N Nzz
 
+" file type specific settings
+filetype on
+filetype plugin on
+filetype indent on
+
 " syntax highlighting
 syntax enable
 
-" set editor specific settings
-set autoindent
-set number
-set number relativenumber
+" set editor specific settings 
 set ruler
+set autoindent
+set number relativenumber
 set wrap
 set autochdir
 set cursorline
+highlight clear cursorline
+highlight cursorline ctermbg=red
 set noerrorbells
 set noswapfile autoread ttyfast visualbell
 
-" set long history and undo levels
-set history=999
-set undolevels=999
+" set long history/undo
+set history=900
+set undolevels=900
 
 " no introductory message
 set shortmess+=I
@@ -59,21 +67,26 @@ set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
 Plugin 'VundleVim/Vundle.vim'
 
-" add plugins here
-Plugin 'atom/fuzzy-finder'
+" all plugins
 Plugin 'itchyny/lightline.vim'
 Plugin 'terryma/vim-multiple-cursors'
 Plugin 'scrooloose/nerdtree'
+Plugin 'flazz/vim-colorschemes' 
+Plugin 'kien/ctrlp.vim'
 
 call vundle#end()
 
-" Post plugin install configurations
+" post plugin install configs
 filetype plugin indent on
-"  Nerdtree
+
+" Nerdtree config
 map <C-o> :NERDTreeToggle<CR>
 let g:NERDTreeDirArrowExpandable = '+'
 let g:NERDTreeDirArrowCollapsible = '~'
 
-" lightline
+" lightline config
 set laststatus=2
 set noshowmode
+
+" Theme config
+colorscheme wombat
