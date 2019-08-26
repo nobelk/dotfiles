@@ -34,11 +34,6 @@ set smartcase
 noremap n nzz
 noremap N Nzz
 
-" file type specific settings
-filetype on
-filetype plugin on
-filetype indent on
-
 " syntax highlighting
 syntax enable
 
@@ -48,9 +43,6 @@ set autoindent
 set number relativenumber
 set wrap
 set autochdir
-set cursorline
-highlight clear cursorline
-highlight cursorline ctermbg=red
 set noerrorbells
 set noswapfile autoread ttyfast visualbell
 
@@ -89,4 +81,8 @@ set laststatus=2
 set noshowmode
 
 " Theme config
-colorscheme wombat
+colorscheme atom
+
+" Set cursorline
+set cursorline
+highlight CursorLine cterm=NONE ctermbg=234
