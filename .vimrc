@@ -55,7 +55,35 @@ set history=900
 set undolevels=900
 
 " no introductory message
-set shortmess+=I
+set shortmess+=atI
+
+" Nerdtree config
+map <C-o> :NERDTreeToggle<CR>
+let g:NERDTreeDirArrowExpandable = '▸'
+let g:NERDTreeDirArrowCollapsible = '▾'
+let g:NERDTreeWinPos = "right"
+let NERDTreeQuitOnOpen = 1
+
+" lightline config
+set laststatus=2
+set noshowmode
+
+" set file/command completion
+set wildmenu
+set wildmode=list:longest
+
+" accurate bookmarking - jump to line + column of bookmark
+nnoremap ` '
+nnoremap ' `
+
+" set terminal title
+set title
+
+" maintain context around cursor
+set scrolloff=3
+
+" let vim manage multiple buffers effectively
+set hidden
 
 " install vundle and plugins
 filetype off
@@ -71,22 +99,12 @@ Plugin 'flazz/vim-colorschemes'
 Plugin 'kien/ctrlp.vim'
 
 call vundle#end()
-
-" post plugin install configs
 filetype plugin indent on
 
-" Nerdtree config
-map <C-o> :NERDTreeToggle<CR>
-let g:NERDTreeDirArrowExpandable = '+'
-let g:NERDTreeDirArrowCollapsible = '~'
-
-" lightline config
-set laststatus=2
-set noshowmode
-
-" Theme config
+" *** color/appearance lines needs to be after plugin lines ***
 colorscheme atom
 
-" Set cursorline
+" set cursorline
 set cursorline
 highlight CursorLine cterm=NONE ctermbg=234
+" *** end of color/appearance lines ***************************
