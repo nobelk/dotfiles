@@ -34,6 +34,10 @@ set smartcase
 noremap n nzz
 noremap N Nzz
 
+" move normally between wrapped lines
+nmap j gj
+nmap k gk
+
 " syntax highlighting
 syntax enable
 
