@@ -1,0 +1,18 @@
+{
+    "ignored_packages":
+    [
+        "Vintage",
+    ],
+    "color_scheme": "GitHub Dimmed.sublime-color-scheme",
+    "theme": "Default Dark.sublime-theme",
+    "word_wrap": "true",
+    "index_files": true,
+    "translate_tabs_to_spaces": true,
+    "caret_style":"phase",
+    "save_on_focus_lost": true,
+    "highlight_line": true,
+    "trim_trailing_white_space_on_save": true,
+    "font_face": "JetBrains Mono",
+    "font_options": ["no_liga", "no_clig", "no_calt"],
+    "font_size": 15,
+}
