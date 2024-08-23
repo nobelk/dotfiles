@@ -14,5 +14,6 @@
     "trim_trailing_white_space_on_save": true,
     "font_face": "JetBrains Mono",
     "font_options": ["no_liga", "no_clig", "no_calt"],
-    "font_size": 15,
+    "font_size": 18,
+    "auto_complete": false,
 }
