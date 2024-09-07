@@ -3,17 +3,21 @@
     [
         "Vintage",
     ],
-    "color_scheme": "GitHub Dimmed.sublime-color-scheme",
-    "theme": "Default Dark.sublime-theme",
-    "word_wrap": "true",
+    "font_size": 15,
+    "word_wrap": true,
+    "spell_check": true,
+    "scroll_past_end": true,
     "index_files": true,
     "translate_tabs_to_spaces": true,
-    "caret_style":"phase",
-    "save_on_focus_lost": true,
     "highlight_line": true,
-    "trim_trailing_white_space_on_save": true,
-    "font_face": "JetBrains Mono",
     "font_options": ["no_liga", "no_clig", "no_calt"],
-    "font_size": 18,
     "auto_complete": false,
+    "font_face": "JetBrains Mono",
+    // OS X only: When files are opened from finder, or by dragging onto the
+    // dock icon, this controls if a new window is created or not.
+    "open_files_in_new_window": false,
+    // Makes tabs with modified files more visible
+    "highlight_modified_tabs": true,
+
+    "theme": "Adaptive.sublime-theme",
 }
