@@ -47,5 +47,8 @@
     "coloring": "indent_aware"
   },
   "wrap_guides": [90],
-  "show_wrap_guides": true
+  "show_wrap_guides": true,
+  "buffer_font_features": {
+    "calt": false
+  }
 }
