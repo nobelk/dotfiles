@@ -27,6 +27,7 @@
   "ui_font_family": "JetBrains Mono",
   "buffer_font_family": "JetBrains Mono",
   "relative_line_numbers": true,
+  "base_keymap": "JetBrains",
   "telemetry": {
     "metrics": false,
     "diagnostics": false
