@@ -7,6 +7,9 @@
 // custom settings, run the `open default settings` command
 // from the command palette or from `Zed` application menu.
 {
+  "features": {
+    "edit_prediction_provider": "copilot"
+  },
   "agent": {
     "model_parameters": [],
     "default_model": {
@@ -31,7 +34,7 @@
   "telemetry": {
     "metrics": false,
     "diagnostics": false
- },
+  },
   "toolbar": {
     "breadcrumbs": true,
     "quick_actions": false,
@@ -48,7 +51,9 @@
     "enabled": true,
     "coloring": "indent_aware"
   },
-  "wrap_guides": [90],
+  "wrap_guides": [
+    90
+  ],
   "show_wrap_guides": true,
   "buffer_font_features": {
     "calt": false
