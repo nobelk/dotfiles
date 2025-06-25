@@ -23,7 +23,7 @@
   "buffer_font_size": 16,
   "cursor_blink": false,
   "preferred_line_length": 90,
-  "soft_wrap": "preferred_line_length",
+  "soft_wrap": "editor_width",
   "format_on_save": "on",
   "formatter": "language_server",
   "enable_language_server": true,
