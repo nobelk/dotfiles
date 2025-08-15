@@ -4,29 +4,31 @@
 // documentation: https://zed.dev/docs/configuring-zed
 //
 // To see all of Zed's default settings without changing your
-// custom settings, run the `open default settings` command
-// from the command palette or from `Zed` application menu.
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
 {
-  "features": {
-    "edit_prediction_provider": "copilot"
-  },
   "agent": {
-    "model_parameters": [],
+    "default_profile": "ask",
     "default_model": {
-      "provider": "copilot_chat",
-      "model": "gpt-4.1"
+      "provider": "anthropic",
+      "model": "claude-opus-4-1-latest"
     },
-    "version": "2"
+    "use_modifier_to_send": true,
+    "single_file_review": false
   },
-  "theme": "Tokyo Night",
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
   "ui_font_size": 16,
   "buffer_font_size": 16,
   "cursor_blink": false,
   "preferred_line_length": 90,
   "soft_wrap": "editor_width",
   "format_on_save": "on",
-  "formatter": "language_server",
-  "enable_language_server": true,
   "ui_font_family": "JetBrains Mono",
   "buffer_font_family": "JetBrains Mono",
   "relative_line_numbers": true,
@@ -35,18 +37,6 @@
     "metrics": false,
     "diagnostics": false
   },
-  "toolbar": {
-    "breadcrumbs": true,
-    "quick_actions": false,
-    "selections_menu": false
-  },
-  "tab_bar": {
-    "show": true
-  },
-  "scrollbar": {
-    "show": "never"
-  },
-  // Rainbow indentation
   "indent_guides": {
     "enabled": true,
     "coloring": "indent_aware"
@@ -55,7 +45,13 @@
     90
   ],
   "show_wrap_guides": true,
+  "tab_bar": {
+    "show": true
+  },
+  "scrollbar": {
+    "show": "never"
+  },
   "buffer_font_features": {
     "calt": false
-  }
+  },
 }
