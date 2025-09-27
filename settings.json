@@ -11,7 +11,7 @@
     "default_profile": "ask",
     "default_model": {
       "provider": "anthropic",
-      "model": "claude-opus-4-latest"
+      "model": "claude-sonnet-4-latest"
     },
     "use_modifier_to_send": true,
     "single_file_review": false
@@ -41,9 +41,7 @@
     "enabled": true,
     "coloring": "indent_aware"
   },
-  "wrap_guides": [
-    90
-  ],
+  "wrap_guides": [90],
   "show_wrap_guides": true,
   "tab_bar": {
     "show": true
@@ -58,5 +56,5 @@
     "after_delay": {
       "milliseconds": 30000
     }
-  },
+  }
 }
