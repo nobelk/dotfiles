@@ -22,8 +22,6 @@
     "dark": "Tokyo Night"
   },
   "ui_font_size": 16,
-  "buffer_font_size": 15,
-  "ui_font_size": 16,
   "buffer_font_size": 16,
   "cursor_blink": false,
   "preferred_line_length": 90,
