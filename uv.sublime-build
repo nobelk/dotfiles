@@ -1,0 +1,11 @@
+{
+    "cmd": ["uv", "run"],
+    "working_dir": "${project_path:${folder}}",
+    "selector": "source.python",
+    "variants": [
+        {
+            "name": "Run Current File",
+            "cmd": ["/Users/Nobel.Khandaker/.pyenv/shims/uv", "run", "python", "$file"]
+        }
+    ]
+}
