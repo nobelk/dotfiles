@@ -1,0 +1,697 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "uv.sublime-build",
+			"settings":
+			{
+				"buffer_size": 283,
+				"line_ending": "Unix"
+			},
+			"undo_stack":
+			[
+			]
+		},
+		{
+			"file": "/Users/nobelkhandaker/Library/Application Support/Sublime Text/Packages/User/uv.sublime-build",
+			"settings":
+			{
+				"buffer_size": 283,
+				"encoding": "UTF-8",
+				"line_ending": "Unix",
+				"name": "untitled.sublime-build"
+			},
+			"undo_stack":
+			[
+				[
+					1,
+					1,
+					"insert_snippet",
+					{
+						"contents": "{\n\t\"shell_cmd\": \"${0:make}\"\n}\n"
+					},
+					"AQAAAAAAAAAAAAAAHAAAAAAAAAAAAAAA",
+					"AQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPC/"
+				],
+				[
+					3,
+					1,
+					"paste",
+					null,
+					"AQAAAAAAAAAAAAAAGwEAAAAAAAAcAAAAewogICAgInNoZWxsX2NtZCI6ICJtYWtlIgp9Cg",
+					"AQAAAAAAAAABAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAAAPC/"
+				]
+			]
+		}
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"ins",
+				"Package Control: Install Package"
+			],
+			[
+				"list ",
+				"Package Control: List Packages"
+			],
+			[
+				"install packa",
+				"Package Control: Install Package"
+			],
+			[
+				"claude",
+				"Claudette: Ask Question"
+			],
+			[
+				"install",
+				"Package Control: Install Package"
+			],
+			[
+				"copilot",
+				"Copilot: Chat"
+			],
+			[
+				"LSP",
+				"LSP: Disable Language Server in Project"
+			],
+			[
+				"preferences",
+				"Preferences: LSP Settings"
+			],
+			[
+				"Termi",
+				"Terminus: Open Default Shell in Panel"
+			],
+			[
+				"Install",
+				"Package Control: Install Package"
+			],
+			[
+				"inst",
+				"Package Control: Install Package"
+			],
+			[
+				"copilot chat",
+				"Copilot: Chat"
+			],
+			[
+				"copi",
+				"Preferences: LSP-copilot Settings"
+			],
+			[
+				"copilot: ",
+				"Copilot: Generate Docs"
+			],
+			[
+				"Copilot: S",
+				"Copilot: Conversation Agents"
+			],
+			[
+				"Copilot",
+				"Preferences: LSP-copilot Settings"
+			],
+			[
+				"color",
+				"UI: Select Color Scheme"
+			],
+			[
+				"theme",
+				"UI: Select Color Scheme"
+			],
+			[
+				"settings",
+				"Preferences: Settings"
+			],
+			[
+				"setting",
+				"Preferences: Settings"
+			],
+			[
+				"instal",
+				"Package Control: Install Package"
+			]
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/Users/nobelkhandaker/sources/dotfiles/Preferences.sublime-settings",
+		"/Users/nobelkhandaker/sources/interview-prep/src/array/array_of_products.py",
+		"/Users/Nobel.Khandaker/sources/spamfish/hello_1.eml",
+		"/Users/Nobel.Khandaker/game-of-life/life.mojo",
+		"/Users/Nobel.Khandaker/game-of-life/gridv1.mojo",
+		"/Users/Nobel.Khandaker/sources/RAGsearch/.gitignore",
+		"/Users/Nobel.Khandaker/sources/RAGsearch/README.md",
+		"/Users/Nobel.Khandaker/Desktop/openAIrecoveryCode",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/intervals/minimum_number_of_balloons.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/intervals/insert_interval.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/ipo.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/interview-prep.sublime-project",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/two_pointer/two_sum_sorted_input_array_II.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/two_pointer/container_with_most_water.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/two_pointer/three_sum2.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_search/square_root.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/advanced_algorithm/dutch_national_flag_problem.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/sparse_matrix/sparse_matrix_multiplication.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/hashmap/group_anagrams.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/word_break.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/linked_list/copy_list_with_random_pointers.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_search_tree/lowest_common_ancestor2.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/lowest_common_ancestor_binary_tree.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_search_tree/kth_smallest_item2.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/max_path_sum.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/game_of_life.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/spiral_matrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/longest_consecutive_sequence.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dictionary/contains_duplicate_II.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/advanced_algorithm/kadanes_algorithm.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/valid_suduko.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/rotate_image.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/set_matrix_zeroes.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/reverse_words.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/other/plus_one.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_search/search_insert_position.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/other/power_of_function.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/breadth_first_search/course_schedule.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/house_robber.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/sliding_window/max_consecutive_ones.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/two_pointer/valid_palindrome.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/other/hit_counter.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/enemy_damage.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_search_tree/tree_traversal.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/in_order_traversal.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/connected_components.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/reveal_minesweeper.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/stack/shorten_path.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/stack/simplify_unix_path.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/other/calculate_power.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/graph/remove_islands.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/largest_island.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/sorting/bubble_sort.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/graph/breadth_first_traversal_pattern.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/breadth_first_search/min_mutation.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/sum_root_to_leaf_numbers.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/zig_zag_tree_traversal.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/tests/test_solutions.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/zig_zag_traverse.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/flatten_binary_tree_to_linked_list.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/sum_root_to_leaf_numbers.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/symmetrical_tree.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/monotonic_stack/monotonic_stack.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/monotonic_stack/slidiing_window_maximum.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/monotonic_stack/daily_temperature.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/monotonic_stack/next_greater_element.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/segment_tree/segment_tree.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/divide_and_conquer/merge_sort.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/divide_and_conquer/count_smaller_number_after_self.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/invert_binary_tree.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/linked_list/merge_two_linked_lists.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/merge_k_sorted_list.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/other/merge_intervals.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/merge_overlapping_intervals.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/generate_parenthesis.py",
+		"/Users/Nobel.Khandaker/Desktop/segment_tree.001.png",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/intervals/meeting_rooms.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/kth_smallest_item_in_matrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/intervals/merge_intervals.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/interweaving_strings.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/generate_div_tags.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/ambiguous_measurement.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/underscorify_substring.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/knapsack_problem.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/disk_stacking.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/max_sum_submatrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/juice_bottling.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/linked_list/linked_list_palindrome.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/binary_tree/flatten_binary_tree.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/sorting/heapsort.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/boggle_board.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/graph/number_of_islands.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/linked_list/zip_linked_list.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/depth_first_search/longest_increasing_path_in_matrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/breadth_first_search/matrix_nearest_0_distance.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/linked_list/rearrange_linked_list.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/longest_palindrome.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/group_anagrams.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/longest_substring_without_duplication.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/matrix/toeplitz_matrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/toeplitz_matrix.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/continuous_median_handler.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/k_sorted_array.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/laptop_rental.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/heap/merge_sorted_array.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/string/semordnilap.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/max_sum_increasing_subsequence.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/lowest_common_manager.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/famous_algorithms/stable_marriage.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/product_sum_of_special_array.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/staircase_traversal.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/permutations.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/powerset.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/recursion/phone_number_mnemonics.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/climbing_stairs.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/four_number_sum.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/number_of_ways_to_traverse_graph.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/dynamic_programming/number_of_ways_to_make_change.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/subarray_sort.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/array/validate_subsequence.py",
+		"/Users/Nobel.Khandaker/sources/interview-prep/src/graph/knight_connection.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/sliding_window/longest_subarray_sum.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/sliding_window/longest_subarray_sum2.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/sliding_window/sweet_and_savory.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/sliding_window/best_seat_in_theatre.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/other/fizzbuzz.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/array/minimum_rewards.py",
+		"/Users/nobelkhandaker/sources/interview-prep/src/array/non_constructible_change.py"
+	],
+	"find":
+	{
+		"height": 36.0
+	},
+	"find_in_files":
+	{
+		"height": 190.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"scrollbar_highlights": true,
+		"show_context": true,
+		"use_buffer2": true,
+		"use_gitignore": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "uv.sublime-build",
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 283,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								0,
+								283
+							]
+						],
+						"settings":
+						{
+							"auto_complete_triggers":
+							[
+								{
+									"characters": "<",
+									"selector": "text.html, text.xml"
+								},
+								{
+									"rhs_empty": true,
+									"selector": "punctuation.accessor"
+								},
+								{
+									"selector": "- comment - punctuation.separator - punctuation.definition.string.end - constant.character.escape - invalid.illegal - punctuation.section.mapping - punctuation.section.sequence",
+									"server": "LSP-json"
+								}
+							],
+							"bracket_highlighter.busy": false,
+							"bracket_highlighter.locations":
+							{
+								"close":
+								{
+									"1":
+									[
+										281,
+										282
+									]
+								},
+								"icon":
+								{
+									"1":
+									[
+										"Packages/BracketHighlighter/icons/curly_bracket.png",
+										"region.purplish"
+									]
+								},
+								"open":
+								{
+									"1":
+									[
+										0,
+										1
+									]
+								},
+								"unmatched":
+								{
+								}
+							},
+							"bracket_highlighter.regions":
+							[
+								"bh_angle",
+								"bh_angle_center",
+								"bh_angle_open",
+								"bh_angle_close",
+								"bh_angle_content",
+								"bh_c_define",
+								"bh_c_define_center",
+								"bh_c_define_open",
+								"bh_c_define_close",
+								"bh_c_define_content",
+								"bh_curly",
+								"bh_curly_center",
+								"bh_curly_open",
+								"bh_curly_close",
+								"bh_curly_content",
+								"bh_default",
+								"bh_default_center",
+								"bh_default_open",
+								"bh_default_close",
+								"bh_default_content",
+								"bh_double_quote",
+								"bh_double_quote_center",
+								"bh_double_quote_open",
+								"bh_double_quote_close",
+								"bh_double_quote_content",
+								"bh_regex",
+								"bh_regex_center",
+								"bh_regex_open",
+								"bh_regex_close",
+								"bh_regex_content",
+								"bh_round",
+								"bh_round_center",
+								"bh_round_open",
+								"bh_round_close",
+								"bh_round_content",
+								"bh_single_quote",
+								"bh_single_quote_center",
+								"bh_single_quote_open",
+								"bh_single_quote_close",
+								"bh_single_quote_content",
+								"bh_square",
+								"bh_square_center",
+								"bh_square_open",
+								"bh_square_close",
+								"bh_square_content",
+								"bh_tag",
+								"bh_tag_center",
+								"bh_tag_open",
+								"bh_tag_close",
+								"bh_tag_content",
+								"bh_unmatched",
+								"bh_unmatched_center",
+								"bh_unmatched_open",
+								"bh_unmatched_close",
+								"bh_unmatched_content"
+							],
+							"lsp_active": true,
+							"lsp_uri": "file:///Users/nobelkhandaker/sources/dotfiles/uv.sublime-build",
+							"show_definitions": false,
+							"syntax": "Packages/zzz A File Icon zzz/aliases/JSON (Sublime).sublime-syntax",
+							"tab_size": 4,
+							"translate_tabs_to_spaces": true
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 1,
+					"stack_multiselect": false,
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "/Users/nobelkhandaker/Library/Application Support/Sublime Text/Packages/User/uv.sublime-build",
+					"selected": true,
+					"semi_transient": false,
+					"settings":
+					{
+						"buffer_size": 283,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								283,
+								283
+							]
+						],
+						"settings":
+						{
+							"auto_complete_triggers":
+							[
+								{
+									"characters": "<",
+									"selector": "text.html, text.xml"
+								},
+								{
+									"rhs_empty": true,
+									"selector": "punctuation.accessor"
+								},
+								{
+									"selector": "- comment - punctuation.separator - punctuation.definition.string.end - constant.character.escape - invalid.illegal - punctuation.section.mapping - punctuation.section.sequence",
+									"server": "LSP-json"
+								}
+							],
+							"bracket_highlighter.busy": false,
+							"bracket_highlighter.locations":
+							{
+								"close":
+								{
+								},
+								"icon":
+								{
+								},
+								"open":
+								{
+								},
+								"unmatched":
+								{
+								}
+							},
+							"bracket_highlighter.regions":
+							[
+								"bh_angle",
+								"bh_angle_center",
+								"bh_angle_open",
+								"bh_angle_close",
+								"bh_angle_content",
+								"bh_c_define",
+								"bh_c_define_center",
+								"bh_c_define_open",
+								"bh_c_define_close",
+								"bh_c_define_content",
+								"bh_curly",
+								"bh_curly_center",
+								"bh_curly_open",
+								"bh_curly_close",
+								"bh_curly_content",
+								"bh_default",
+								"bh_default_center",
+								"bh_default_open",
+								"bh_default_close",
+								"bh_default_content",
+								"bh_double_quote",
+								"bh_double_quote_center",
+								"bh_double_quote_open",
+								"bh_double_quote_close",
+								"bh_double_quote_content",
+								"bh_regex",
+								"bh_regex_center",
+								"bh_regex_open",
+								"bh_regex_close",
+								"bh_regex_content",
+								"bh_round",
+								"bh_round_center",
+								"bh_round_open",
+								"bh_round_close",
+								"bh_round_content",
+								"bh_single_quote",
+								"bh_single_quote_center",
+								"bh_single_quote_open",
+								"bh_single_quote_close",
+								"bh_single_quote_content",
+								"bh_square",
+								"bh_square_center",
+								"bh_square_open",
+								"bh_square_close",
+								"bh_square_content",
+								"bh_tag",
+								"bh_tag_center",
+								"bh_tag_open",
+								"bh_tag_close",
+								"bh_tag_content",
+								"bh_unmatched",
+								"bh_unmatched_center",
+								"bh_unmatched_open",
+								"bh_unmatched_close",
+								"bh_unmatched_content"
+							],
+							"lsp_active": true,
+							"lsp_uri": "file:///Users/nobelkhandaker/Library/Application%20Support/Sublime%20Text/Packages/User/uv.sublime-build",
+							"show_definitions": false,
+							"syntax": "Packages/zzz A File Icon zzz/aliases/JSON (Sublime).sublime-syntax"
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"stack_index": 0,
+					"stack_multiselect": false,
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 36.0
+	},
+	"input":
+	{
+		"height": 62.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.LSP Log Panel":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.diagnostics":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"output.find_results":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"pinned_build_system": "",
+	"project": "uv.sublime-project",
+	"replace":
+	{
+		"height": 68.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+	},
+	"show_minimap": false,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 224.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}
