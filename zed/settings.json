@@ -7,6 +7,15 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+  "agent": {
+    "default_profile": "ask",
+    "default_model": {
+      "provider": "ollama",
+      "model": "qwen2.5:1.5b"
+    },
+    "model_parameters": []
+  },
+  "auto_update": false,
   "ui_font_size": 16,
   "buffer_font_size": 16,
   "cursor_blink": false,
@@ -39,21 +48,6 @@
   "autosave": {
     "after_delay": {
       "milliseconds": 30000
-    }
-  },
-  "language_models": {
-    "ollama": {
-      "api_url": "http://localhost:11434",
-      "available_models": [
-        {
-          "name": "qwen2.5-coder",
-          "display_name": "qwen 2.5 coder 7b",
-          "max_tokens": 32768,
-          "supports_tools": true,
-          "supports_thinking": true,
-          "supports_images": true
-        }
-      ]
     }
   }
 }
