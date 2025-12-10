@@ -7,29 +7,15 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
-  "agent": {
-    "default_profile": "ask",
-    "default_model": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-latest"
-    },
-    "use_modifier_to_send": true,
-    "single_file_review": false
-  },
-  "theme": {
-    "mode": "system",
-    "light": "One Light",
-    "dark": "Tokyo Night"
-  },
   "ui_font_size": 16,
   "buffer_font_size": 16,
   "cursor_blink": false,
   "preferred_line_length": 90,
   "soft_wrap": "editor_width",
   "format_on_save": "on",
-  "ui_font_family": "JetBrains Mono",
-  "buffer_font_family": "JetBrains Mono",
-  "relative_line_numbers": false,
+  "ui_font_family": "Roboto Mono",
+  "buffer_font_family": "Roboto Mono",
+  "relative_line_numbers": "disabled",
   "base_keymap": "JetBrains",
   "telemetry": {
     "metrics": false,
@@ -53,6 +39,21 @@
   "autosave": {
     "after_delay": {
       "milliseconds": 30000
+    }
+  },
+  "language_models": {
+    "ollama": {
+      "api_url": "http://localhost:11434",
+      "available_models": [
+        {
+          "name": "qwen2.5-coder",
+          "display_name": "qwen 2.5 coder 7b",
+          "max_tokens": 32768,
+          "supports_tools": true,
+          "supports_thinking": true,
+          "supports_images": true
+        }
+      ]
     }
   }
 }
