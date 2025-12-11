@@ -27,8 +27,12 @@
     "format_on_save": "on",
     "ui_font_family": "Roboto Mono",
     "buffer_font_family": "Roboto Mono",
-    "relative_line_numbers": "enabled",
     "base_keymap": "JetBrains",
+    "diagnostics": {
+        "inline": {
+            "enabled": true
+        }
+    },
     "telemetry": {
         "metrics": false,
         "diagnostics": false
