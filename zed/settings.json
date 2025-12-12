@@ -28,7 +28,7 @@
     "ui_font_family": "Roboto Mono",
     "buffer_font_family": "Roboto Mono",
     "base_keymap": "JetBrains",
-    "show_completions_on_input": false,
+    "show_edit_predictions": false,
     "diagnostics": {
         "inline": {
             "enabled": true
