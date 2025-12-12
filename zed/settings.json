@@ -28,6 +28,7 @@
     "ui_font_family": "Roboto Mono",
     "buffer_font_family": "Roboto Mono",
     "base_keymap": "JetBrains",
+    "show_completions_on_input": false,
     "diagnostics": {
         "inline": {
             "enabled": true
@@ -55,6 +56,13 @@
     "autosave": {
         "after_delay": {
             "milliseconds": 30000
+        }
+    },
+    "terminal": {
+        "working_directory": {
+            "always": {
+                "directory": "/Users/nobelk/sources"
+            }
         }
     }
 }
