@@ -58,11 +58,13 @@
             "milliseconds": 30000
         }
     },
+    "minimap": {
+        "show": "always",
+        "thumb": "always",
+        "thumb_border": "left_open",
+        "current_line_highlight": "line"
+    },
     "terminal": {
-        "working_directory": {
-            "always": {
-                "directory": "/Users/nobelk/sources"
-            }
-        }
+        "working_directory": "current_project_directory"
     }
 }
