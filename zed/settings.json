@@ -53,11 +53,7 @@
     "buffer_font_features": {
         "calt": false
     },
-    "autosave": {
-        "after_delay": {
-            "milliseconds": 30000
-        }
-    },
+    "autosave": "on_focus_change",
     "minimap": {
         "show": "always",
         "thumb": "always",
