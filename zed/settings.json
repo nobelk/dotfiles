@@ -24,7 +24,6 @@
     "cursor_blink": false,
     "preferred_line_length": 90,
     "soft_wrap": "editor_width",
-    "format_on_save": "on",
     "ui_font_family": "Roboto Mono",
     "buffer_font_family": "Roboto Mono",
     "base_keymap": "JetBrains",
