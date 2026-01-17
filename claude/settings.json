@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/nobelk/play_alert_sound.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "model": "opus"
+}
