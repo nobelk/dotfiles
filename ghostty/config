@@ -1,0 +1,146 @@
+# =============================================================================
+# Ghostty Configuration for Claude Code Engineering Workflows
+# =============================================================================
+# Location: ~/.config/ghostty/config
+# Docs:     ghostty +show-config --default --docs
+# Tested:   Ghostty 1.2.0+
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Font
+# -----------------------------------------------------------------------------
+# JetBrains Mono ships with Ghostty as the default. Specifying it explicitly
+# lets you add Nerd Font fallbacks for icon glyphs (starship, powerlevel10k).
+font-family = JetBrains Mono
+font-family = Symbols Nerd Font Mono
+font-size = 14
+# macOS only — thickens strokes for retina
+font-thicken = true
+# Slight extra line spacing for readability
+adjust-cell-height = 10%
+
+# -----------------------------------------------------------------------------
+# Window & Appearance
+# -----------------------------------------------------------------------------
+# Theme names are Title Case since 1.2.0.  Run: ghostty +list-themes
+theme = Catppuccin Mocha
+background-opacity = 0.95
+background-blur-radius = 20
+window-padding-x = 8
+window-padding-y = 4
+# Centers content when window doesn't align to grid
+window-padding-balance = true
+window-decoration = auto
+# Don't prompt when closing a split/tab
+confirm-close-surface = false
+mouse-hide-while-typing = true
+
+# macOS: restore previous window layout (tabs, splits, positions) on relaunch.
+# Has no effect on Linux.
+window-save-state = always
+
+# -----------------------------------------------------------------------------
+# Cursor
+# -----------------------------------------------------------------------------
+# Note: shell-integration overrides cursor style at prompts regardless.
+cursor-style = bar
+cursor-style-blink = false
+
+# -----------------------------------------------------------------------------
+# Scrollback
+# -----------------------------------------------------------------------------
+# Large scrollback — Claude Code can produce very long outputs.
+scrollback-limit = 100000
+
+# -----------------------------------------------------------------------------
+# Clipboard & Safety
+# -----------------------------------------------------------------------------
+clipboard-read = allow
+clipboard-write = allow
+copy-on-select = clipboard
+# Warns before pasting text with newlines
+clipboard-paste-protection = true
+
+# -----------------------------------------------------------------------------
+# macOS-Specific
+# -----------------------------------------------------------------------------
+# Required if using Zellij, tmux alt-key bindings, or option-key shortcuts.
+# macos-option-as-alt = true
+# macos-titlebar-style = hidden
+
+# -----------------------------------------------------------------------------
+# Shell Integration
+# -----------------------------------------------------------------------------
+shell-integration = detect
+shell-integration-features = cursor,sudo,title
+
+# -----------------------------------------------------------------------------
+# Splits — Visual
+# -----------------------------------------------------------------------------
+# Dims unfocused splits so you can instantly see which pane has focus.
+# Essential when running Claude Code alongside an editor and dev server.
+unfocused-split-opacity = 0.85
+
+# -----------------------------------------------------------------------------
+# Multiline Input (Claude Code)
+# -----------------------------------------------------------------------------
+# Shift+Enter inserts a newline so you can write multi-line prompts.
+keybind = shift+enter=text:\n
+
+# -----------------------------------------------------------------------------
+# Split Navigation (Vim-style)
+# -----------------------------------------------------------------------------
+# Ctrl + h/j/k to move between splits.
+# NOTE: We intentionally skip ctrl+l because it conflicts with the universal
+# shell "clear screen" shortcut. Use ctrl+shift+l or the next/previous
+# bindings below instead.
+keybind = ctrl+h=goto_split:left
+keybind = ctrl+j=goto_split:bottom
+keybind = ctrl+k=goto_split:top
+keybind = ctrl+shift+l=goto_split:right
+# Fallback: cycle through splits sequentially
+keybind = ctrl+shift+n=goto_split:next
+keybind = ctrl+shift+p=goto_split:previous
+
+# -----------------------------------------------------------------------------
+# Split Creation
+# -----------------------------------------------------------------------------
+keybind = ctrl+shift+backslash=new_split:right
+keybind = ctrl+shift+minus=new_split:down
+
+# -----------------------------------------------------------------------------
+# Split Resizing
+# -----------------------------------------------------------------------------
+keybind = ctrl+shift+equal=equalize_splits
+keybind = super+ctrl+left=resize_split:left,20
+keybind = super+ctrl+right=resize_split:right,20
+keybind = super+ctrl+up=resize_split:up,20
+keybind = super+ctrl+down=resize_split:down,20
+
+# -----------------------------------------------------------------------------
+# Tab Navigation (non-default additions only)
+# -----------------------------------------------------------------------------
+# super+t, super+w, super+1-9, super+c/v, super+k are already Ghostty
+# defaults in 1.2.0 — no need to redeclare them.
+#
+# These bracket-key tab-cycling shortcuts are a useful addition:
+keybind = super+shift+bracket_left=previous_tab
+keybind = super+shift+bracket_right=next_tab
+
+# -----------------------------------------------------------------------------
+# Quick Terminal (Drop-down)
+# -----------------------------------------------------------------------------
+# Global hotkey to toggle a quick-access terminal overlay.
+keybind = global:ctrl+grave_accent=toggle_quick_terminal
+quick-terminal-position = top
+quick-terminal-screen = main
+quick-terminal-animation-duration = 0.1
+
+# -----------------------------------------------------------------------------
+# Prompt Navigation (requires shell integration)
+# -----------------------------------------------------------------------------
+# Jump between shell prompts in scrollback — great for reviewing
+# Claude Code outputs across multiple invocations.
+keybind = ctrl+shift+up=jump_to_prompt:-1
+keybind = ctrl+shift+down=jump_to_prompt:1
+
