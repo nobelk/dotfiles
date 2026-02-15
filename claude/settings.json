@@ -1,15 +1,26 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/nobelk/play_alert_sound.sh"
+            "command": "afplay /System/Library/Sounds/Hero.aiff &"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "afplay /System/Library/Sounds/Submarine.aiff &"
           }
         ]
       }
     ]
-  },
-  "model": "opus"
+  }
 }
