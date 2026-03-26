@@ -7,7 +7,8 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
-    "theme": "macOS Classic Dark",
+    "icon_theme": "Material Icon Theme",
+    "theme": "Tokyo Night",
     "auto_update": false,
     "ui_font_size": 16,
     "buffer_font_size": 16,
@@ -17,49 +18,56 @@
     "tabs": { "file_icons": true },
     "git": {
         "git_gutter": "tracked_files",
-        "inline_blame": { "enabled": false }
+        "inline_blame": { "enabled": false },
     },
     "tab_size": 4,
     "hard_tabs": false,
     "cursor_blink": false,
     "preferred_line_length": 90,
     "soft_wrap": "editor_width",
-    "ui_font_family": "Roboto Mono",
-    "buffer_font_family": "Roboto Mono",
+    "ui_font_family": "JetBrainsMono Nerd Font Mono",
+    "buffer_font_family": "JetBrainsMono Nerd Font Mono",
     "base_keymap": "JetBrains",
     "show_edit_predictions": false,
     "diagnostics": {
         "inline": {
-            "enabled": true
-        }
+            "enabled": true,
+        },
     },
     "telemetry": {
         "metrics": false,
-        "diagnostics": false
+        "diagnostics": false,
     },
     "indent_guides": {
         "enabled": true,
-        "coloring": "indent_aware"
+        "coloring": "indent_aware",
     },
     "wrap_guides": [90],
     "show_wrap_guides": true,
     "tab_bar": {
-        "show": true
+        "show": true,
     },
     "scrollbar": {
-        "show": "never"
+        "show": "never",
     },
     "buffer_font_features": {
-        "calt": false
+        "calt": false,
     },
     "autosave": "on_focus_change",
     "minimap": {
-        "show": "always",
-        "thumb": "always",
+        "show": "never",
         "thumb_border": "left_open",
-        "current_line_highlight": "line"
+        "current_line_highlight": "line",
     },
     "terminal": {
-        "working_directory": "current_project_directory"
-    }
+        "working_directory": "current_project_directory",
+    },
+    "outline_panel": {
+        "dock": "right",
+    },
+
+    "collaboration_panel": {
+        "dock": "right",
+    },
+    "vim_mode": true,
 }
