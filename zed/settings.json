@@ -7,18 +7,30 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
+    "agent": {
+        "dock": "right",
+        "favorite_models": [],
+        "model_parameters": []
+    },
+    "git_panel": {
+        "dock": "left"
+    },
     "icon_theme": "Material Icon Theme",
-    "theme": "Tokyo Night",
+    "theme": "Ayu Mirage",
     "auto_update": false,
     "ui_font_size": 16,
     "buffer_font_size": 16,
     "buffer_line_height": { "custom": 1.4 },
     "toolbar": { "breadcrumbs": false, "quick_actions": false },
-    "project_panel": { "entry_spacing": "standard" },
-    "tabs": { "file_icons": true },
+    "project_panel": {
+        "entry_spacing": "standard",
+        "git_status": true,
+        "auto_reveal_entries": true,
+        "dock": "left"
+    },
     "git": {
         "git_gutter": "tracked_files",
-        "inline_blame": { "enabled": false },
+        "inline_blame": { "enabled": false }
     },
     "tab_size": 4,
     "hard_tabs": false,
@@ -29,45 +41,60 @@
     "buffer_font_family": "JetBrainsMono Nerd Font Mono",
     "base_keymap": "JetBrains",
     "show_edit_predictions": false,
+    "relative_line_numbers": "enabled",
+    "format_on_save": "on",
+    "remove_trailing_whitespace_on_save": true,
+    "ensure_final_newline_on_save": true,
+    "show_completions_on_input": true,
+    "show_completion_documentation": true,
+    "inlay_hints": {
+        "enabled": true
+    },
     "diagnostics": {
         "inline": {
-            "enabled": true,
-        },
+            "enabled": true
+        }
     },
     "telemetry": {
         "metrics": false,
-        "diagnostics": false,
+        "diagnostics": false
     },
     "indent_guides": {
         "enabled": true,
-        "coloring": "indent_aware",
+        "coloring": "indent_aware"
     },
     "wrap_guides": [90],
     "show_wrap_guides": true,
     "tab_bar": {
-        "show": true,
+        "show": true
     },
     "scrollbar": {
-        "show": "never",
+        "show": "never"
     },
     "buffer_font_features": {
-        "calt": false,
+        "calt": false
     },
     "autosave": "on_focus_change",
+    "restore_on_startup": "last_workspace",
+    "confirm_quit": true,
+    "when_closing_with_no_tabs": "keep_window_open",
     "minimap": {
         "show": "never",
         "thumb_border": "left_open",
-        "current_line_highlight": "line",
+        "current_line_highlight": "line"
     },
     "terminal": {
-        "working_directory": "current_project_directory",
+        "working_directory": "current_project_directory"
     },
     "outline_panel": {
-        "dock": "right",
+        "dock": "right"
     },
-
     "collaboration_panel": {
-        "dock": "right",
+        "dock": "right"
     },
     "vim_mode": true,
+    "vim": {
+        "use_system_clipboard": "always",
+        "use_smartcase_find": true
+    }
 }
