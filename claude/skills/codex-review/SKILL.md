@@ -9,6 +9,19 @@ Get an independent code review of this repository's changed files from codex, th
 
 If the repo has a `CLAUDE.md`, read it first — it is authoritative for conventions, layering rules, and testing expectations, and it wins over any codex suggestion that contradicts it.
 
+## Subagent delegation
+
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+
+- **Main loop owns** (never delegate): the scope decision in Step 0, every `AskUserQuestion` gate (Step 0 scope tie-break, Step 2 codex-unavailable, Step 4 ambiguous/invasive fix), presenting the disposition table, and the Step 6 final report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
+- **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose output out of the main context):
+  - **Step 2** — run the `codex exec review …` command and return the raw findings verbatim (also written to the scratch file). The lengthy codex transcript stays in the subagent.
+  - **Step 3** — hand the findings plus the Step 1 project rules to a subagent that adjudicates each against the actual code and returns the accept/reject/defer disposition table with file/line evidence. The main loop reviews the table and owns any follow-up question.
+  - **Step 4** — after the main loop has cleared every ambiguous/invasive finding via `AskUserQuestion`, dispatch a subagent to apply the remaining accepted fixes and return a summary mapped to finding numbers.
+  - **Step 5** — run the project's verification gate (`task ci`, etc.) and return pass/fail plus only the failing output.
+
+Give each subagent a self-contained prompt: the exact command(s) to run, the file list/scope from Step 0, and the precise shape of the result to return. Dispatch independent subagents in one message when they don't depend on each other; serialize where one's output feeds the next (Step 2 → 3 → 4 → 5 is a chain).
+
 ## Step 0 — Determine the review scope (auto-detect)
 
 "New and modified files" resolves in this order:

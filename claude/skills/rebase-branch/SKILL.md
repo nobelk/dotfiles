@@ -9,6 +9,19 @@ Bring `<input-branch>`'s changes into the **current** branch by rebasing the cur
 
 If the repo has a `CLAUDE.md`, read it first — it is authoritative for conventions, testing expectations, and layering rules, and it governs every edit made during reconciliation.
 
+## Subagent delegation
+
+Run the read-heavy analysis and verification in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), but keep every git **state change** and interactive gate in the main loop. The split is fixed and load-bearing — a subagent must never drive the rebase, because conflict resolution needs the `AskUserQuestion` gate:
+
+- **Main loop owns** (never delegate): all of Step 0 preflight and SHA recording, **the entire rebase in Step 2** (the replay, conflict resolution, and every risky-conflict `AskUserQuestion`), applying reconciliation **edits** and the design-choice gate in Step 3, the Step 4 fix-and-ask cycle, and the Step 6 report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
+- **Delegate to a `general-purpose` subagent** (each returns a compact result):
+  - **Step 1** — run the survey git commands and read the overlapping file diffs, returning a summary of which files changed on both sides and the likely conflict/inconsistency sites. Read-only; no state change.
+  - **Step 3 (analysis only)** — hand the `<base>..<pre-rebase-sha>` delta and the input's changes to a subagent that hunts semantic inconsistencies (stale calls, contradicting tests/docs, duplicated helpers) and returns a list of sites to fix. The main loop makes the edits and owns any design-choice question.
+  - **Step 4** — run the `codex exec review --base <input-sha> …` command and return the raw findings verbatim (also written to the scratch file); optionally a second subagent adjudicates them into the disposition table. The main loop applies accepted fixes and owns the ambiguous/invasive gate.
+  - **Step 5** — run the auto-detected format/lint/build/test gate and return pass/fail plus only the failing output.
+
+Give each subagent a self-contained prompt: the exact commands, the SHAs/branch names, and the precise result shape to return.
+
 ## Step 0 — Preflight (abort early, not midway)
 
 1. Resolve the input branch from the skill argument. If no argument was given, list branches (`git branch -a --sort=-committerdate`) and use AskUserQuestion to pick one.

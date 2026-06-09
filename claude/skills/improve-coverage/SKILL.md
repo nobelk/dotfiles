@@ -9,6 +9,20 @@ Raise unit-test coverage on the **packages this branch changed**, the discipline
 
 This skill follows the repo's TDD and hexagonal-discipline rules — read `CLAUDE.md` before doing anything; it overrides any default behavior here.
 
+## Subagent delegation
+
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+
+- **Main loop owns** (never delegate): the Step 0 scope resolution, every stop-and-ask gate (Step 0 branch==base, zero changed files; the codex-unavailable gate), drafting the plan in Step 3, presenting baseline numbers and dispositions, and the Step 8 final checklist. Subagents cannot prompt the user, so the gates stay here.
+- **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose `go test` / coverage output out of the main context):
+  - **Step 1** — run the `go test … -coverprofile` + `go tool cover -func` commands over the target packages and return the per-package and total percentages plus the lowest-covered rows. The full profile output stays in the subagent.
+  - **Step 4** — run the `codex exec` plan review and return the raw findings verbatim (also written to the review scratch file).
+  - **Step 5** — hand the findings plus CLAUDE.md and the real source/tests to a subagent that adjudicates each and returns the accept/reject/defer table. The main loop rewrites `coverage-plan.md` from the accepted dispositions.
+  - **Step 6** — dispatch a subagent to implement the planned tests for a target package (one subagent per package keeps each focused), following CLAUDE.md exactly, returning a summary of tests added and any minimal port extraction made. Re-running arch-lint after a port extraction belongs in Step 7's gate.
+  - **Step 7** — run `task fmt/lint/build/test` (or `task ci`) and the after-coverage re-measure, returning gate pass/fail plus the before→after numbers and any `task mutation` survivors.
+
+Give each subagent a self-contained prompt: the exact commands, the target-package list from Step 0, the relevant CLAUDE.md rules, and the precise result shape to return.
+
 ## Step 0 — Establish the baseline scope (changed packages)
 
 The phrase "coverage of the current branch" means the Go packages touched relative to the default branch — not the whole module.

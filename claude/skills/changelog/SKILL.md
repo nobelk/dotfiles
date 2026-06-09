@@ -25,6 +25,15 @@ Conventions:
 - One `## YYYY-MM-DD` heading per date. Newest date first.
 - Bullets describe **user-visible** changes in past tense ("Added X", "Fixed Y", "Removed Z"). Not raw commit subjects.
 
+## Subagent delegation
+
+Run the expensive, self-contained drafting work in a **`general-purpose` subagent** (via the `Agent`/`Task` tool); keep orchestration in the main loop. The split is fixed:
+
+- **Main loop owns** (never delegate): the `<base>`/branch/dirty-tree inspection in Step 1, the decision of which scope to record, writing/editing `CHANGELOG.md`, showing the final `git diff`, and any question to the user. Subagents cannot prompt the user, so the "ask whether to include uncommitted work" gate in Step 2b stays here.
+- **Delegate to a `general-purpose` subagent**: the bullet-drafting in Step 2a (bootstrap) and Step 2b (update) — pass the resolved `<base>` and commit range, and have the subagent run `git log` / `git show <sha> --stat` to reword opaque subjects, returning **only** the proposed `# Changelog` body (bootstrap) or the new bullet list (update). The verbose history stays in the subagent's context; the main loop writes the returned text to disk.
+
+Give the subagent a self-contained prompt: the exact commit range, the file-format conventions above, and the precise result shape to return. The main loop never delegates the file write itself.
+
 ## Step 1 — Inspect state
 
 First, determine the repo's default branch — call this `<base>`:

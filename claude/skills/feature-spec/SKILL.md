@@ -11,6 +11,17 @@ Two related identifiers, derived from one input:
 - `<branch-name>` — the git branch, **always** namespaced under `specs/` (e.g. `specs/2026-05-05-firefly`).
 - `<name>` — `<branch-name>` with the leading `specs/` stripped; names the docs directory `specs/<name>/`. Stripping the prefix avoids `specs/specs/...` nesting.
 
+## Subagent delegation
+
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+
+- **Main loop owns** (never delegate): branch-name normalization and the `git switch -c` **branch creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), and the Step 7 report. Subagents cannot prompt the user, so every gate stays here.
+- **Delegate to a `general-purpose` subagent** (each returns a compact result):
+  - **Step 5** — run the `codex exec --sandbox read-only …` review of the three spec files and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 6** — hand the findings plus the Step 3 answers and the mission/tech-stack constraints to a subagent that adjudicates each finding and returns the accept/reject/defer disposition table. The main loop applies non-decision edits, and any finding that would change a user decision goes back through `AskUserQuestion` here — never in the subagent.
+
+Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
+
 ## Step 0 — Read and normalize the branch name input
 
 The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefly`, `specs/auth-revamp`).
