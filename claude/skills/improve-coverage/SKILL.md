@@ -1,6 +1,6 @@
 ---
 name: improve-coverage
-description: Measure unit-test coverage of the current branch's changed Go packages, draft a CLAUDE.md-compliant plan to raise it, have codex review the plan, then implement and verify the improvement. Computes coverage from git diff main...HEAD (branch-changed packages only), writes a plan, runs `codex exec` to review it, validates and addresses the review, then formats/lints/builds/tests and confirms coverage rose significantly. Invoke manually when you want to harden test coverage on a feature branch before merge.
+description: Measure unit-test coverage of the current branch's changed Go packages, draft a CLAUDE.md-compliant plan to raise it, have codex review the plan, then implement and verify the improvement. Computes coverage from git diff against the resolved default branch (origin/HEAD, else main/master) — branch-changed packages only, writes a plan, runs `codex exec` to review it, validates and addresses the review, then formats/lints/builds/tests and confirms coverage rose significantly. Invoke manually when you want to harden test coverage on a feature branch before merge.
 ---
 
 # Improve coverage skill
@@ -29,16 +29,21 @@ The phrase "coverage of the current branch" means the Go packages touched relati
 
 1. Resolve the default branch:
    ```bash
-   git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' \
+   git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
      || (git show-ref --verify --quiet refs/heads/main && echo main) \
      || (git show-ref --verify --quiet refs/heads/master && echo master)
    ```
-   Call the result `<base>`. Record the current branch with `git branch --show-current`.
+   Call the result `<base>` — a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else
+   the local `main`/`master` fallback; both are valid as the `git diff <base>...HEAD` left side.
+   (Don't strip `origin/`: a bare `main` fails in clones with no local default branch.) Record the
+   current branch with `git branch --show-current`.
 2. If the current branch *is* `<base>`, stop and ask the user which packages to target — there is no branch delta to scope from.
 3. Compute the changed Go files and map them to packages:
    ```bash
-   git diff --name-only <base>...HEAD -- '*.go' | grep -v '_test\.go$'
+   git diff --name-only <base>...HEAD -- '*.go' | grep -v '_test\.go$' || true
    ```
+   (The trailing `|| true` keeps an empty result — only `_test.go` changes, or no matches — from
+   reading as a command failure; the zero-production-files path below is the intended handling.)
    Reduce each path to its directory, dedupe, and drop directories that hold no non-test `.go` files. These directories are the **target packages** (`./internal/domain`, `./internal/adapters/...`, etc.).
    - Note `_test.go`-only changes separately — they affect coverage but add no production lines to cover.
    - If the delta touches zero production `.go` files, stop and tell the user there is nothing to measure; offer to fall back to whole-module `task cover`.
@@ -53,7 +58,7 @@ go tool cover -func=coverage.before.out
 - Use the explicit target-package list from Step 0, not `./...` — the report must be branch-scoped. Naming each package explicitly is deliberate: a changed package with **no test file** still reports `0.0%` (Go emits a profile row for any package named in the arg list), which is exactly the gap this skill exists to catch. Do **not** switch to `-coverpkg` to "fix" this — `-coverpkg` drops un-imported packages from the profile and would hide that 0% package.
 - This measures **in-package self-coverage**: a package's own `_test.go` files covering its own statements. It does *not* credit a changed package for being exercised by a *sibling* package's tests. If a target package is intentionally covered by a consumer/helper package's tests (e.g. a port exercised via `portstest` or a consumer), its self-coverage number will read low — note this rather than chasing it, and only for that package re-measure with `go test ./... -coverpkg=<that-package> -coverprofile=...` to see whole-suite attribution. State which semantic each number is.
 - Capture the **per-package** and **total** statement-coverage percentages from the `cover -func` tail. This total is the baseline you must beat.
-- If any target package fails to compile or test, fix nothing yet — record it; a red package is itself a coverage finding for the plan.
+- If any target package fails to compile or its tests are red, fix nothing yet — record it and **stop-and-ask** (see Stop-and-ask conditions). A red package blocks the baseline measurement, so confirm with the user whether to fix it first, drop it from scope, or proceed before planning around it — don't silently plan against an unmeasurable package.
 - Identify the lowest-covered functions/files (the `cover -func` rows below the target) — these are the plan's raw material.
 
 Report the baseline to the user before planning: per-package %, total %, and the largest uncovered gaps.
@@ -119,7 +124,7 @@ task test
 go test <target-packages> -race -count=1 -coverprofile=coverage.after.out
 go tool cover -func=coverage.after.out
 ```
-- Prefer `task ci` for the full gate (lint + test + build + arch-lint) unless the user asked to skip it.
+- Prefer `task ci` for the full gate (lint + test + build + arch-lint) unless the user asked to skip it. Run `task --list` first to confirm these targets exist; if the Taskfile names them differently (or there is no Taskfile), run the project's equivalents — the gate is fmt + lint + build + test however the project spells it. This skill assumes a Go project with a Taskfile; adapt the verbs, not the gate.
 - Compare `coverage.after.out` total against the Step 1 baseline. "Significantly increased" means a material, named jump (state the before → after per package and total). If the lift is marginal, say so honestly and propose the next gap rather than declaring success.
 - For safety-critical packages, run `task mutation` and report surviving mutants — line coverage alone does not clear a safety path.
 - Clean up scratch coverage files (`coverage.before.out`, `coverage.after.out`) unless the user wants them kept; never commit them.

@@ -28,7 +28,7 @@ Give each subagent a self-contained prompt: the exact commands, the SHAs/branch 
    - **Remote refs** (`origin/main`, or a name that only exists on a remote): fetch first (`git fetch <remote> <branch>`), then rebase onto the remote-tracking ref directly — the input is only read, so no local branch is needed. Verify it resolves: `git rev-parse --verify <input>`.
    - **Local branch names**: verify the branch exists. If it tracks a remote and is behind it (`git rev-list <input>..<input>@{upstream}` non-empty), use AskUserQuestion: rebase onto the local tip, the upstream tip, or abort.
 2. Record the current branch (`git branch --show-current`). If detached HEAD, or current == input (or current's tip == input's tip), stop and tell the user.
-3. Require a clean working tree (`git status --porcelain`). If dirty, use AskUserQuestion: stash and continue (re-apply after), or abort.
+3. Require a clean working tree (`git status --porcelain`). If dirty, use AskUserQuestion: stash and continue (re-applied after the rebase), or abort. **If they choose stash, run `git stash push -u -m "rebase-branch <current>"` and record in the conversation that a stash was created** — it is reapplied in Step 2 after the rebase completes, and must not be left hidden.
 4. Record SHAs before touching anything:
    ```bash
    git rev-parse HEAD       # pre-rebase tip of current — the rollback point
@@ -67,6 +67,11 @@ Conflict policy — **resolve yourself, confirm the risky ones**:
 - If the rebase becomes unrecoverable or the user aborts a question, run `git rebase --abort` — the current branch returns to its recorded pre-rebase state untouched — and report.
 
 After the rebase completes, confirm the invariant: `git merge-base --is-ancestor <input> HEAD` must now hold, and `git diff <pre-rebase-sha> HEAD -- <files only current touched>` should be empty or explainable by conflict resolutions.
+
+**Reapply stashed work, if any.** If Step 0.3 created a stash, restore it now so the user's
+pre-existing uncommitted changes aren't left buried: `git stash pop`. Resolve any pop conflicts the
+same way as rebase conflicts — mechanical ones directly, risky ones via AskUserQuestion — before
+moving on. Confirm `git stash list` no longer shows the entry. (If no stash was created, skip this.)
 
 ## Step 3 — Reconcile the current branch's changes with the incoming ones
 
@@ -128,6 +133,7 @@ State, per the repo's handoff checklist if it has one:
 - Dirty working tree, or a local input branch behind its upstream (Step 0).
 - A risky conflict: both sides meaningfully changed the same logic/contract (Step 2).
 - Any temptation to `git rebase --skip` a commit (Step 2).
+- A `git stash pop` of pre-existing stashed work conflicts with the rebased tree (Step 2).
 - A reconciliation that requires choosing between the two branches' designs (Step 3).
 - codex unavailable/erroring, or an accepted finding's fix is ambiguous or invasive (Step 4).
 - A verification gate fails for a pre-existing reason unrelated to the rebase (Step 5).

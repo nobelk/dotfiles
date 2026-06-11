@@ -56,7 +56,7 @@ Resolve `<ticket-key>` in this order, and **always confirm before editing**:
 
 Once confirmed, fetch the ticket's **current** title and description and record them — they are the before-state for the Step 7 diff. If the user explicitly says no ticket exists yet, stop and ask whether to create one (`createJiraIssue`) or skip the Jira side entirely; do not create tickets unprompted.
 
-> The MCP Atlassian tools are deferred — load their schemas with `ToolSearch` (e.g. `select:mcp__claude_ai_Atlassian__getJiraIssue,mcp__claude_ai_Atlassian__editJiraIssue,mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql`) before calling them. If the Atlassian MCP server is not connected or auth fails, tell the user and use AskUserQuestion to offer alternatives (retry after they connect it, proceed with the spec edits only, or abort) — never silently skip the Jira side.
+> The MCP Atlassian tools are deferred — load their schemas with `ToolSearch` (e.g. `select:mcp__claude_ai_Atlassian__getJiraIssue,mcp__claude_ai_Atlassian__editJiraIssue,mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql,mcp__claude_ai_Atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian__getVisibleJiraProjects`) before calling them — including the accessible-resources and visible-projects lookups Step 2 uses when the cloud id or project is unknown. If the Atlassian MCP server is not connected or auth fails, tell the user and use AskUserQuestion to offer alternatives (retry after they connect it, proceed with the spec edits only, or abort) — never silently skip the Jira side.
 
 ## Step 3 — Apply the spec edits
 

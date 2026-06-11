@@ -39,10 +39,14 @@ Give the subagent a self-contained prompt: the exact commit range, the file-form
 First, determine the repo's default branch — call this `<base>`:
 
 ```bash
-git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' \
+git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
   || (git show-ref --verify --quiet refs/heads/main && echo main) \
   || (git show-ref --verify --quiet refs/heads/master && echo master)
 ```
+
+`<base>` is a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else the local
+`main`/`master` fallback — both work as the `git log <base>..HEAD` left side. (Don't strip
+`origin/`: a bare `main` fails in clones with no local default branch.)
 
 Then run in parallel:
 - `test -f CHANGELOG.md && echo exists || echo missing`

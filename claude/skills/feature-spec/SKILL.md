@@ -55,12 +55,21 @@ Before branching:
 - Resolve the default branch:
 
   ```bash
-  git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' \
+  git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
     || (git show-ref --verify --quiet refs/heads/main && echo main) \
     || (git show-ref --verify --quiet refs/heads/master && echo master)
   ```
 
-Then: `git switch -c <branch-name> <base>`.
+  `<base>` is a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else the local
+  `main`/`master` fallback — both are valid start points for `git switch -c`. (Don't strip
+  `origin/`: a bare `main` fails in clones with no local default branch.)
+
+Then create the branch, **branching on what Step 0 found**:
+- New name (the common case) → `git switch -c <branch-name> <base>`.
+- Step 0 found the branch already exists and the user chose **switch to it** → `git switch <branch-name>`
+  (no `-c`, no `<base>`); you are now on the existing branch, so skip ahead to Step 3.
+- The user chose **delete and recreate** → confirm, then `git branch -D <branch-name>` followed by
+  `git switch -c <branch-name> <base>`.
 
 ## Step 3 — Gather spec inputs (one grouped AskUserQuestion)
 

@@ -32,11 +32,14 @@ Give each subagent a self-contained prompt: the exact command(s) to run, the fil
    ```
 2. Resolve the default branch and collect the **branch delta**:
    ```bash
-   git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' \
+   git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
      || (git show-ref --verify --quiet refs/heads/main && echo main) \
      || (git show-ref --verify --quiet refs/heads/master && echo master)
    git diff --name-only <base>...HEAD
    ```
+   `<base>` is a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else the local
+   `main`/`master` fallback — both are valid refs for the `git diff`/`review` below. (Don't strip
+   `origin/`: a bare `main` fails in clones that have no local default branch.)
 3. Pick the scope:
    - Only uncommitted changes exist → review those.
    - Only a branch delta exists (clean tree) → review the branch delta.

@@ -60,7 +60,7 @@ The CLI uses semantic exit codes. Key ranges for agents:
 | 50–59 | Operation error | Report to user |
 | 60–69 | Command-specific | Check stderr for details |
 
-See [Exit Codes](/exit-codes/) for the complete reference.
+For the complete exit-code reference, run `sentry --help` or consult the Sentry CLI documentation; the ranges above cover the cases an agent must branch on.
 
 ### Workflow Patterns
 
