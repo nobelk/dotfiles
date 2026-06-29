@@ -25,7 +25,9 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
   - **Step 5** — run the `codex exec --sandbox read-only …` review of the spec diff plus the drafted ticket text and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — hand the findings plus the Step 1 intent and the project rules to a subagent that adjudicates each finding against the actual changed files and returns the accept/reject/defer disposition table with evidence. The main loop applies the edits and owns any follow-up question.
 
-Give each subagent a self-contained prompt: the exact command(s) to run, the spec file paths and ticket draft, and the precise shape of the result to return. Serialize the chain (Step 5 → 6); the rest is main-loop work.
+Give each subagent a self-contained prompt: the exact command(s) to run, the spec file paths and ticket draft, and the precise shape of the result to return.
+
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Here the delegated review chain is serial (Step 5 codex run → Step 6 adjudication), so it stays sequential; but the Step 1 reads (the spec files plus `roadmap.md` / `mission.md` / `tech-stack.md` / `CLAUDE.md`) are independent — fan them out in one message. The `editJiraIssue` write is always a single, serialized, user-confirmed action.
 
 ## Step 0 — Resolve the spec target
 

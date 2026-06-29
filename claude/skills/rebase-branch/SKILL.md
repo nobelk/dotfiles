@@ -22,6 +22,8 @@ Run the read-heavy analysis and verification in a **`general-purpose` subagent**
 
 Give each subagent a self-contained prompt: the exact commands, the SHAs/branch names, and the precise result shape to return.
 
+**Parallelize by default — but never parallelize a state change.** When delegated *read-only* tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently rather than one at a time. The hard constraint overrides this wherever they collide: **every git state change (the rebase replay, conflict resolution, and reconciliation edits) is strictly sequential and stays in the main loop** — never fan out work that mutates the working tree or index. That leaves the read-only analysis to parallelize: within Step 1's survey and within Step 3's semantic-inconsistency hunt, fan out independent readers in one message. The Step 4 review → adjudication path is itself a serial chain.
+
 ## Step 0 — Preflight (abort early, not midway)
 
 1. Resolve the input branch from the skill argument. If no argument was given, list branches (`git branch -a --sort=-committerdate`) and use AskUserQuestion to pick one.

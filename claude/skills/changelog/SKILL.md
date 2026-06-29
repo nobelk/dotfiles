@@ -34,6 +34,8 @@ Run the expensive, self-contained drafting work in a **`general-purpose` subagen
 
 Give the subagent a self-contained prompt: the exact commit range, the file-format conventions above, and the precise result shape to return. The main loop never delegates the file write itself.
 
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in one message rather than one at a time. This skill delegates a single drafting subagent (Step 2a bootstrap *or* Step 2b update, never both), so there is no independent peer to run alongside — the rule simply doesn't bite here. Keep the one drafting call as-is.
+
 ## Step 1 — Inspect state
 
 First, determine the repo's default branch — call this `<base>`:

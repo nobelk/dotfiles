@@ -20,7 +20,11 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
   - **Step 4** — after the main loop has cleared every ambiguous/invasive finding via `AskUserQuestion`, dispatch a subagent to apply the remaining accepted fixes and return a summary mapped to finding numbers.
   - **Step 5** — run the project's verification gate (`task ci`, etc.) and return pass/fail plus only the failing output.
 
-Give each subagent a self-contained prompt: the exact command(s) to run, the file list/scope from Step 0, and the precise shape of the result to return. Dispatch independent subagents in one message when they don't depend on each other; serialize where one's output feeds the next (Step 2 → 3 → 4 → 5 is a chain).
+Give each subagent a self-contained prompt: the exact command(s) to run, the file list/scope from Step 0, and the precise shape of the result to return.
+
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Here the core path **is** a chain (Step 2 → 3 → 4 → 5: findings feed adjudication feeds fixes feed verification), so those stay sequential — but the genuinely independent work runs in parallel:
+- **Step 1 rule-gathering** — fan the `CLAUDE.md` / ADR / sibling-code reads out across parallel reader subagents in one message; they share no state.
+- **Step 2 union scope** (user chose both) — run the `--uncommitted` and `--base` codex reviews as two subagents in the same message; they are independent. Give each a **distinct** scratch file (e.g. `/tmp/codex-review-<branch>-uncommitted.md` and `…-base.md`) so the parallel writes don't clobber one shared path, then merge and dedupe by file:line in the main loop afterward.
 
 ## Step 0 — Determine the review scope (auto-detect)
 

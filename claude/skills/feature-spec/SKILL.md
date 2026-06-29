@@ -22,6 +22,8 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
 
 Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
 
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The two delegated steps here (Step 5 codex run → Step 6 adjudication) form a serial chain, so they don't parallelize; but the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
+
 ## Step 0 — Read and normalize the branch name input
 
 The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefly`, `specs/auth-revamp`).

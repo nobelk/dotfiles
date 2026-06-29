@@ -39,6 +39,8 @@ Run expensive, self-contained work in a **`general-purpose` subagent** (via the 
 
 Give each subagent a self-contained prompt: the exact spec paths, the commands to run, and the precise result shape to return.
 
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Concretely: Step 1's reads (spec trio, `CLAUDE.md`, per-package code/tests, ADRs) are independent — fan them out as parallel reader subagents in one message. **Implementation itself stays serial**: Step 3 works through `plan.md` in order, running each group's tests before starting the next, because the ordered groups typically build on one another and can race through shared artifacts (lockfiles, codegen, migrations, golden files, public API surfaces) even when their source files look disjoint — do not parallelize task-group implementation. The `/simplify` and `/codex-review` invocations and the final verify are likewise sequential — each consumes the prior step's result.
+
 ## Step 0 — Resolve and validate the spec directory
 
 The skill's argument is `<spec-dir>` (e.g. `specs/APP-731`).

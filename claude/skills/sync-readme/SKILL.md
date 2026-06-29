@@ -46,6 +46,13 @@ output you must see, and a hanging or destructive command must be able to stop a
 Give each subagent a self-contained prompt: exactly what to read or run, and the precise shape of
 the result to return.
 
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple
+`Agent`/`Task` calls in a **single message** so they run concurrently — never run independent
+subagents one at a time across turns. Step 1's four readers (source tree + entry points, `specs/`,
+`docs/` + other docs, tests) are independent and **must** go out in one message; only the review →
+adjudication path (Step 5 → Step 6) is a serial chain. Step 2 command verification stays in the main
+loop (not parallelized) because its commands can hang or mutate state and may need to stop and ask.
+
 ## Step 0 — Establish context and the command surface
 
 1. Find the repo root (`git rev-parse --show-toplevel`) and confirm `README.md`'s presence there.

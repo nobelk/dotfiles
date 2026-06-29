@@ -23,6 +23,8 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
 
 Give each subagent a self-contained prompt: the exact commands, the target-package list from Step 0, the relevant CLAUDE.md rules, and the precise result shape to return.
 
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Only serialize a genuine producer→consumer chain (Step 4 codex review → Step 5 adjudication is one). The big win here is **Step 6**: dispatch one implementation subagent per target package in a single message so the package-local test additions land in parallel. Guard it first with a **write-set check** — parallel dispatch is safe only for subagents whose edits stay confined to their own package's `_test.go` files. Serialize anything that touches a *shared* write surface: a production port/`Clock` extraction, a regenerated mock (`task mocks`) or other generated artifact, a `go.mod`/manifest change, a shared test fixture, or a lower-level package multiple targets import — land those prerequisites first (in the main loop or a single upstream subagent), then fan out the remaining package-local test work. Re-run arch-lint in Step 7 once the parallel edits land. The Step 2 rule/ADR/test-pattern reads likewise fan out in one message.
+
 ## Step 0 — Establish the baseline scope (changed packages)
 
 The phrase "coverage of the current branch" means the Go packages touched relative to the default branch — not the whole module.
