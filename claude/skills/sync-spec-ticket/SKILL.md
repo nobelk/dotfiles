@@ -1,6 +1,6 @@
 ---
 name: sync-spec-ticket
-description: Apply a requested change to a feature's spec files under specs/<name>/ AND to the Jira ticket (title + description) associated with that spec, keeping the two in sync. Takes the spec target (a branch name, a specs/<name>/ path, or the current branch) plus a description of the change to make, and optionally the Jira ticket key. Resolves the spec directory, identifies/confirms the Jira ticket (input key, else Jira search, else ask), edits the spec files, drafts the matching Jira title/description, runs codex (OpenAI Codex CLI) headlessly to review the spec diff and the drafted ticket text for consistency, validates every codex finding before acting, folds accepted findings into both the files and the ticket draft, and pushes a single confirmed Jira update. Uses general-purpose subagents for the codex run and finding adjudication, and AskUserQuestion for every clarification and the outward-facing Jira write. Invoke manually when a spec changed and its tracking ticket must follow (or vice versa).
+description: Apply a requested change to a feature's spec files under specs/<name>/ AND to the Jira ticket (title + description) associated with that spec, keeping the two in sync. Takes the spec target (a branch name, a specs/<name>/ path, or the current branch) plus a description of the change to make, and optionally the Jira ticket key. Resolves the spec directory, identifies/confirms the Jira ticket (input key, else Jira search, else ask), edits the spec files, drafts the matching Jira title/description, runs `/codex:adversarial-review --background` to review the spec diff and the drafted ticket text for consistency, validates every codex finding before acting, folds accepted findings into both the files and the ticket draft, and pushes a single confirmed Jira update. Uses general-purpose subagents for the codex run and finding adjudication, and AskUserQuestion for every clarification and the outward-facing Jira write. Invoke manually when a spec changed and its tracking ticket must follow (or vice versa).
 ---
 
 # Sync spec ↔ ticket skill
@@ -22,7 +22,7 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
 
 - **Main loop owns** (never delegate): the spec-target resolution (Step 0), the change-intent gathering (Step 1), every `AskUserQuestion` gate (ticket confirmation in Step 2, ambiguous/scope-changing fixes in Step 6, the final Jira-write confirmation in Step 7), **writing the spec files** (Step 3 and the Step 6 corrections — they depend tightly on the gathered intent), **the `editJiraIssue` write** (Step 7 — an outward-facing, hard-to-reverse action), and the Step 8 report. Subagents cannot prompt the user and must never push to Jira.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose output out of the main context):
-  - **Step 5** — run the `codex exec --sandbox read-only …` review of the spec diff plus the drafted ticket text and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — launch the `/codex:adversarial-review --background` review of the spec diff plus the drafted ticket text, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — hand the findings plus the Step 1 intent and the project rules to a subagent that adjudicates each finding against the actual changed files and returns the accept/reject/defer disposition table with evidence. The main loop applies the edits and owns any follow-up question.
 
 Give each subagent a self-contained prompt: the exact command(s) to run, the spec file paths and ticket draft, and the precise shape of the result to return.
@@ -75,20 +75,21 @@ From the now-updated specs (spec-led) or from the Step 1 ticket revision (ticket
 
 This is a **draft only** — hold it in the working notes. Nothing is pushed to Jira until Step 7. Drafting before review (rather than pushing now) keeps the live ticket out of a half-corrected state if codex surfaces a real problem.
 
-## Step 5 — Codex review of the changes
+## Step 5 — Codex review of the changes via `/codex:adversarial-review --background`
 
-Get an independent second-model review of both surfaces together. Delegate to a `general-purpose` subagent that runs codex headlessly from the repo root over the changed spec files, and also feeds it the drafted ticket text:
+Get an independent second-model review of both surfaces together through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the spec edits *and* the drafted Jira ticket text (which is not in git at all) for mutual consistency, neither of which `/codex:review` can carry. The spec edits are the working-tree diff the review scopes over; the focus text adds the drafted ticket text. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Delegate to a `general-purpose` subagent that launches it from the repo root:
 
 ```bash
-codex exec --sandbox read-only "<instructions>"
+/codex:adversarial-review --background "<focus>"
 ```
 
-With `<instructions>`:
+With `<focus>`:
 
 > Review these changed planning documents: specs/<name>/*.md (focus on the working-tree diff). Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md if present — the edits must stay consistent with them. Separately, here is the drafted Jira ticket title and description that must match the updated specs: "<title>" / "<description>". Review for: internal contradictions introduced by the edit, scope items now in one file but missing from the others, validation criteria that no longer verify the stated requirements, the drafted ticket text disagreeing with the updated specs (missing scope, wrong done-criterion, stale title), and conflicts with the roadmap/mission/tech-stack. For each finding output a numbered item with: surface (spec file:section or ticket-title/ticket-description), the issue, and the suggested change. Output findings only — do not rewrite anything.
 
-- Capture stdout verbatim to a scratch file (e.g. `/tmp/codex-sync-<name>.md`) so Step 6 is auditable. Do **not** commit it.
-- If `codex` is unavailable or errors, verify flags against `codex exec --help`; if it still fails, tell the user and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or proceed without the codex review).
+Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
+- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-sync-<name>.md`) so Step 6 is auditable. Do **not** commit it.
+- If `codex` is unavailable, the launch fails, or `/codex:status` reports the job errored, tell the user and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or proceed without the codex review).
 
 ## Step 6 — Validate the findings and fold them into both surfaces
 

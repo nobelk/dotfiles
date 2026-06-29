@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: Code-review the new and modified files in the current repository by running codex (OpenAI Codex CLI) headlessly, then validate every codex finding against the actual code and project rules, and fix the ones that hold up. Auto-detects scope (uncommitted changes if any, else the branch delta vs the default branch), runs `codex exec` for an independent review, marks each finding accept/reject/defer with evidence, auto-fixes accepted findings, and verifies with the project's own gates. Invoke manually before committing or opening a PR when you want a second-model review of your changes.
+description: Code-review the new and modified files in the current repository by running codex (OpenAI Codex CLI) through the `/codex:review --background` flow, then validate every codex finding against the actual code and project rules, and fix the ones that hold up. Auto-detects scope (uncommitted changes if any, else the branch delta vs the default branch), runs `/codex:review --background` for an independent review, marks each finding accept/reject/defer with evidence, auto-fixes accepted findings, and verifies with the project's own gates. Invoke manually before committing or opening a PR when you want a second-model review of your changes.
 ---
 
 # Codex review skill
@@ -15,7 +15,7 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
 
 - **Main loop owns** (never delegate): the scope decision in Step 0, every `AskUserQuestion` gate (Step 0 scope tie-break, Step 2 codex-unavailable, Step 4 ambiguous/invasive fix), presenting the disposition table, and the Step 6 final report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose output out of the main context):
-  - **Step 2** — run the `codex exec review …` command and return the raw findings verbatim (also written to the scratch file). The lengthy codex transcript stays in the subagent.
+  - **Step 2** — launch the `/codex:review --background` review, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The lengthy codex transcript stays in the subagent.
   - **Step 3** — hand the findings plus the Step 1 project rules to a subagent that adjudicates each against the actual code and returns the accept/reject/defer disposition table with file/line evidence. The main loop reviews the table and owns any follow-up question.
   - **Step 4** — after the main loop has cleared every ambiguous/invasive finding via `AskUserQuestion`, dispatch a subagent to apply the remaining accepted fixes and return a summary mapped to finding numbers.
   - **Step 5** — run the project's verification gate (`task ci`, etc.) and return pass/fail plus only the failing output.
@@ -56,25 +56,25 @@ Filter out generated files, vendored code, and lockfiles unless the user asks ot
 
 Before invoking codex, read (in parallel) whatever exists: `CLAUDE.md`, ADRs or specs relevant to the changed files, and the nearest existing code/tests in the touched packages. You need these to *validate* codex's findings in Step 3 — a finding that contradicts a documented project rule is rejected no matter how plausible it sounds.
 
-## Step 2 — Run codex's review headlessly over the chosen scope
+## Step 2 — Run codex's review via `/codex:review --background` over the chosen scope
 
-Use codex's purpose-built review mode from the repo root — it computes the diff itself, so pass only the scope flag matching Step 0:
+Run codex's native review through the **`/codex:review --background`** flow from the repo root — it computes the diff itself, so pass only the scope flag matching Step 0. The `--background` mode detaches the run into a Claude background task; recover its output with `/codex:status` (progress) and `/codex:result <job-id>` (the stored findings):
 
 ```bash
-# Scope = uncommitted changes:
-codex exec review --uncommitted "<instructions>"
+# Scope = uncommitted changes (working tree):
+/codex:review --background --scope working-tree
 # Scope = branch delta:
-codex exec review --base <base> "<instructions>"
+/codex:review --background --base <base>
 ```
 
-With `<instructions>`:
+`/codex:review` is native-review only — it uses codex's built-in review prompt and **does not accept custom focus instructions** (that is why the CLAUDE.md-conventions check lives in the Step 3 adjudication, not in the review call). If a tailored review prompt is ever required, that is the `/codex:adversarial-review --background "<focus>"` sibling, not this skill.
 
-> Review for: correctness bugs, error-handling gaps, concurrency hazards, security issues, violations of the conventions in CLAUDE.md (if present), missing or weak tests, and API-contract problems. For each finding output a numbered item with: file:line, severity (high/medium/low), the issue, and the suggested fix. Be specific — cite the actual code. Output findings only.
+Concretely, `/codex:review --background` launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--background --scope working-tree"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root). Then:
 
-- For the "union" scope (user chose both), run both commands and merge the findings, deduping overlaps by file:line.
-- Capture stdout verbatim and save it to a scratch file (e.g. `/tmp/codex-review-<branch>.md`) so Step 3 is auditable. Do **not** commit this file.
-- Verify these flags against `codex exec review --help` if the command errors — the CLI evolves; fall back to plain `codex exec --sandbox read-only "<instructions plus explicit file list>"` if the review subcommand is unavailable in the installed version.
-- If `codex` is not installed or the command errors even on fallback, do not silently skip: tell the user codex review failed, and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or abort).
+- **Do not block the launching turn.** After launching, poll `/codex:status` until the job reports finished, then read `/codex:result <job-id>` for the verdict and findings. Only then proceed to Step 3.
+- For the "union" scope (user chose both), launch **two** background jobs — one `--scope working-tree`, one `--base <base>` — in the same message, await both via their job IDs, then merge the findings, deduping overlaps by file:line.
+- Capture the `/codex:result` output verbatim and save it to a scratch file (e.g. `/tmp/codex-review-<branch>.md`) so Step 3 is auditable. Do **not** commit this file.
+- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user codex review failed, and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or abort).
 
 ## Step 3 — Validate every codex finding (the load-bearing step)
 

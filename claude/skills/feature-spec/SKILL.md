@@ -1,6 +1,6 @@
 ---
 name: feature-spec
-description: Scaffold planning docs for the next roadmap phase. Takes a git branch name as input (falls back to YYYY-MM-DD-feature-name derived from specs/roadmap.md if omitted). The feature branch is always created under the specs/ namespace (specs/<name>); names without the prefix are auto-prepended. Reads specs/roadmap.md, specs/mission.md, and specs/tech-stack.md, creates the branch, then asks the user one grouped AskUserQuestion (scope, key decision, validation) before writing specs/<name>/{plan.md, requirements.md, validation.md}. After writing, runs codex (OpenAI Codex CLI) headlessly to review the spec files, validates each review finding, and updates the specs where findings hold up. Invoke manually when starting a new feature.
+description: Scaffold planning docs for the next roadmap phase. Takes a git branch name as input (falls back to YYYY-MM-DD-feature-name derived from specs/roadmap.md if omitted). The feature branch is always created under the specs/ namespace (specs/<name>); names without the prefix are auto-prepended. Reads specs/roadmap.md, specs/mission.md, and specs/tech-stack.md, creates the branch, then asks the user one grouped AskUserQuestion (scope, key decision, validation) before writing specs/<name>/{plan.md, requirements.md, validation.md}. After writing, runs `/codex:adversarial-review --background` to review the spec files, validates each review finding, and updates the specs where findings hold up. Invoke manually when starting a new feature.
 ---
 
 # Feature spec skill
@@ -17,7 +17,7 @@ Run the expensive, self-contained steps in a **`general-purpose` subagent** (via
 
 - **Main loop owns** (never delegate): branch-name normalization and the `git switch -c` **branch creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), and the Step 7 report. Subagents cannot prompt the user, so every gate stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
-  - **Step 5** — run the `codex exec --sandbox read-only …` review of the three spec files and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — launch the `/codex:adversarial-review --background` review of the three spec files, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — hand the findings plus the Step 3 answers and the mission/tech-stack constraints to a subagent that adjudicates each finding and returns the accept/reject/defer disposition table. The main loop applies non-decision edits, and any finding that would change a user decision goes back through `AskUserQuestion` here — never in the subagent.
 
 Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
@@ -31,7 +31,7 @@ The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefl
 - If an argument is provided, normalize it: if it does not already start with `specs/`, prepend `specs/` to form `<branch-name>` (so `feat-x` becomes `specs/feat-x`). Skip the slug-derivation step in Step 2.
 - If no argument is provided, fall back to deriving `<branch-name>` as `specs/<today>-<feature-name>` per Step 2.
 - Validate the normalized name with `git check-ref-format --branch "<branch-name>"`. If invalid, stop and ask the user for a corrected name — do not silently sanitize.
-- If a branch with that name already exists locally (`git show-ref --verify --quiet refs/heads/<branch-name>`), stop and ask the user whether to switch to it, pick a different name, or delete it.
+- If a branch with that name already exists locally (`git show-ref --verify --quiet refs/heads/<branch-name>`), use `AskUserQuestion` to ask whether to switch to it, pick a different name, or delete it.
 
 ## Step 1 — Read the roadmap and supporting docs
 
@@ -53,7 +53,7 @@ Otherwise, derive `<branch-name>` as `specs/<today>-<feature-name>`:
 - `<today>`: the local date in `YYYY-MM-DD`.
 
 Before branching:
-- Run `git status --short`. If the working tree is dirty, stop and ask the user how to proceed (commit/stash/abort) — don't carry uncommitted changes onto the new branch.
+- Run `git status --short`. If the working tree is dirty, use `AskUserQuestion` to ask how to proceed (commit/stash/abort) — don't carry uncommitted changes onto the new branch.
 - Resolve the default branch:
 
   ```bash
@@ -70,7 +70,7 @@ Then create the branch, **branching on what Step 0 found**:
 - New name (the common case) → `git switch -c <branch-name> <base>`.
 - Step 0 found the branch already exists and the user chose **switch to it** → `git switch <branch-name>`
   (no `-c`, no `<base>`); you are now on the existing branch, so skip ahead to Step 3.
-- The user chose **delete and recreate** → confirm, then `git branch -D <branch-name>` followed by
+- The user chose **delete it** (the destructive option in the Step 0 `AskUserQuestion`, so no second confirmation) → `git branch -D <branch-name>` followed by
   `git switch -c <branch-name> <base>`.
 
 ## Step 3 — Gather spec inputs (one grouped AskUserQuestion)
@@ -104,20 +104,21 @@ Order so each group can land as its own commit/PR. Group 1 should be the smalles
 - **Checklist** — concrete checkboxes: tests to add, manual checks, metrics/dashboards to confirm.
 - **Done when** — one line naming the binary signal (test passes, metric crosses threshold, etc.).
 
-## Step 5 — Codex review of the spec files
+## Step 5 — Codex review of the spec files via `/codex:adversarial-review --background`
 
-Get an independent second-model review of the three files just written. Run codex headlessly from the repo root with an explicit file list (the specs are new untracked markdown, not a code diff, so plain `codex exec` fits better than `codex exec review`):
+Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three new untracked spec files are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the repo root:
 
 ```bash
-codex exec --sandbox read-only "<instructions>"
+/codex:adversarial-review --background "<focus>"
 ```
 
-With `<instructions>`:
+With `<focus>`:
 
 > Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, and specs/tech-stack.md if they exist — the specs must be consistent with them. Review for: internal contradictions between the three files, scope items in plan.md missing from requirements.md (and vice versa), validation criteria that don't actually verify the stated requirements, ambiguous or untestable acceptance criteria, missing edge cases or risks, and conflicts with the roadmap/mission/tech-stack. For each finding output a numbered item with: file, the issue, and the suggested change. Output findings only — do not rewrite the documents.
 
-- Capture stdout verbatim to a scratch file (e.g. `/tmp/codex-spec-review-<name>.md`) so Step 6 is auditable. Do **not** commit this file.
-- If `codex` is not installed or the command errors, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or skip the review and report the files as-is).
+Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
+- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-spec-review-<name>.md`) so Step 6 is auditable. Do **not** commit this file.
+- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or skip the review and report the files as-is).
 
 ## Step 6 — Validate the findings and update the specs
 
@@ -141,5 +142,5 @@ Print the three file paths and a one-sentence summary of each, plus the codex re
 
 - "Today" = local system date, not commit timestamps (only used in the fallback slug derivation).
 - The branch is always `specs/<name>` and the docs directory is always `specs/<name>/` — same `<name>`, derived once in Step 0/2; keep them in sync. If `<name>` itself contains further slashes (e.g. `specs/feat/auth`), the spec directory nests accordingly (`specs/feat/auth/`).
-- If the project already has a `specs/<name>/` directory, stop and ask the user whether to overwrite, append, or pick a different name.
+- If the project already has a `specs/<name>/` directory, use `AskUserQuestion` to ask whether to overwrite, append, or pick a different name. Run this check **before Step 4 writes the files**; if the user picks a different name, loop back through the Step 0 name normalization and branch-existence check so the branch and `specs/<name>/` names stay in sync.
 - If the user runs this skill on a branch that isn't the default branch, warn them — they may have meant to run it after merging their current work.

@@ -67,7 +67,7 @@ Then run in parallel:
 ## Step 2b — If CHANGELOG.md exists: update for the merge
 
 1. Determine new work since `<base>` diverged: `git log <base>..HEAD --pretty=format:"%h %s" --no-merges`.
-2. If `git status --short` shows uncommitted changes, ask the user whether to include them too (they may intend to commit first).
+2. If `git status --short` shows uncommitted changes, use `AskUserQuestion` to ask whether to include them too — options: include the uncommitted work / record only committed work (they may intend to commit first).
 3. If both are empty → tell the user there's nothing to record and stop.
 4. Read the existing `CHANGELOG.md`.
 5. Find or create a `## <today>` heading directly under the `# Changelog` title (today = current date in `YYYY-MM-DD`). If today's heading already exists, append to it; do **not** create a duplicate heading.
@@ -86,4 +86,4 @@ Then run in parallel:
 - "Today" means the local date; obtain it from the system, not from commit timestamps.
 - Never amend an existing dated section other than today's — past entries are historical.
 - Don't commit the CHANGELOG.md update yourself; let the user fold it into their merge.
-- If the repo has no remote and no `main`/`master` branch, ask the user which branch to diff against.
+- If the repo has no remote and no `main`/`master` branch, use `AskUserQuestion` to ask which branch to diff against (offer the local branches found; the free-text option covers any other ref).

@@ -1,6 +1,6 @@
 ---
 name: sync-readme
-description: Generate or refresh the repository's README.md for future engineers and product managers by analyzing the codebase, spec files, the docs/ folder and other documentation, the tests, and the project's own lint/format/build/test/run commands — then verifying those commands actually work before documenting them. Produces a README with six sections (project overview, brief file structure, verified lint/format/build/test/run instructions, ASCII diagrams of the critical workflows, critical conventions/pitfalls, and the project's coding styles), then runs codex (OpenAI Codex CLI) headlessly to review the README, validates every codex finding against the actual repo, and folds the ones that hold up back into the file. Invoke manually when the README is missing, stale, or after a change that alters how the project is built, tested, or run.
+description: Generate or refresh the repository's README.md for future engineers and product managers by analyzing the codebase, spec files, the docs/ folder and other documentation, the tests, and the project's own lint/format/build/test/run commands — then verifying those commands actually work before documenting them. Produces a README with six sections (project overview, brief file structure, verified lint/format/build/test/run instructions, ASCII diagrams of the critical workflows, critical conventions/pitfalls, and the project's coding styles), then runs `/codex:adversarial-review --background` to review the README, validates every codex finding against the actual repo, and folds the ones that hold up back into the file. Invoke manually when the README is missing, stale, or after a change that alters how the project is built, tested, or run.
 ---
 
 # Sync README skill
@@ -35,8 +35,9 @@ tool) and keep orchestration in the main loop. The split is fixed:
     `specs/`, one over `docs/` and other documentation (`*.md`, `CONTRIBUTING`, ADRs), one over the
     test suite. Each returns a tight summary, not raw file contents. Dispatch these in **one
     message** so they run concurrently — they are independent.
-  - **Step 5** — run the `codex exec --sandbox read-only …` review of the README and return the raw
-    findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — launch the `/codex:adversarial-review --background` review of the README, poll
+    `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings
+    verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — hand the findings plus the Step 1 summaries and the Step 2 verified-command log to a
     subagent that adjudicates each finding and returns the accept/reject/defer disposition table.
 
@@ -166,17 +167,21 @@ Prefer the actual port/adapter/service names from Step 1. If a flow has concurre
 fuse (e.g. two retrieval legs → fusion), show the split and the join — that structure is exactly the
 "critical workflow" worth a diagram.
 
-## Step 4 — Hand off to codex for review
+## Step 4 — Hand off to codex for review via `/codex:adversarial-review --background`
 
-Get an independent second-model review of the README just written. The README is new/edited Markdown
-rather than a code diff, so plain `codex exec` fits better than `codex exec review`. Run it
-headlessly from the repo root via the Step 5 subagent:
+Get an independent second-model review of the README just written through the
+**`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than
+plain `/codex:review` because the review needs **custom focus text** — it must judge README.md
+against CLAUDE.md / the task runner / specs, which `/codex:review` cannot carry. The edited README is
+the working-tree change the review scopes over; the focus text below points codex at it.
+`--background` detaches the run; recover it with `/codex:status` (progress) and
+`/codex:result <job-id>` (findings). Run it via the Step 5 subagent:
 
 ```bash
-codex exec --sandbox read-only "<instructions>"
+/codex:adversarial-review --background "<focus>"
 ```
 
-With `<instructions>`:
+With `<focus>`:
 
 > Review README.md at the repo root for a new engineer and a product manager. Also read CLAUDE.md,
 > AGENTS.md, the task runner file (Taskfile.yml / Makefile / package.json), and specs/ if they exist
@@ -188,16 +193,22 @@ With `<instructions>`:
 > finding output a numbered item with: the README section, the issue, and the suggested change.
 > Output findings only — do not rewrite the document.
 
-- Capture stdout verbatim to a scratch file (e.g. `/tmp/codex-readme-review-<repo>.md`) so Step 6 is
-  auditable. Do **not** commit this file.
-- Verify `codex exec --help` if the command errors — the CLI evolves. If `codex` is not installed or
-  errors, do not silently skip: tell the user the codex review failed and use `AskUserQuestion` to
-  offer alternatives (retry, substitute a self-review pass against Step 1/Step 2 findings, or report
-  the README as-is without the second-model pass).
+Concretely this launches the codex-companion runtime detached
+(`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"`
+with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
+
+- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes,
+  then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g.
+  `/tmp/codex-readme-review-<repo>.md`) so Step 6 is auditable. Do **not** commit this file.
+- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not
+  silently skip: tell the user the codex review failed and use `AskUserQuestion` to offer
+  alternatives (retry, substitute a self-review pass against Step 1/Step 2 findings, or report the
+  README as-is without the second-model pass).
 
 ## Step 5 — (delegated) run the review
 
-Covered by the Step 4 command, dispatched to a `general-purpose` subagent that returns the raw
+Covered by the Step 4 flow, dispatched to a `general-purpose` subagent that launches the background
+review, polls `/codex:status` to completion, fetches `/codex:result <job-id>`, and returns the raw
 findings verbatim. The lengthy codex transcript stays in the subagent.
 
 ## Step 6 — Validate every finding and update the README

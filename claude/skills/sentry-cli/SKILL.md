@@ -41,7 +41,7 @@ The `sentry` CLI follows conventions from well-known tools — if you're familia
 
 ### Safety Rules
 
-- Always confirm with the user before running destructive commands: `project delete`, `trial start`
+- Always confirm with the user — via the `AskUserQuestion` tool (proceed / cancel) — before running any destructive or irreversible command. Treat the following as examples of that category, not an exhaustive list: `project delete`, `release delete`, `dashboard widget delete`, `issue merge`, `trial start`
 - For mutations, verify the org/project context looks correct in the command output before proceeding with further changes
 - Never store or log authentication tokens — the CLI manages credentials automatically
 - If the CLI reports the wrong org/project, override with explicit `<org>/<project>` arguments

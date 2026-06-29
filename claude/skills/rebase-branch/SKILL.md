@@ -1,6 +1,6 @@
 ---
 name: rebase-branch
-description: Rebase the current branch onto an input branch so all of the input branch's changes land in the current branch with linear history; the input branch is never modified. Then reconcile the current branch's own code, tests, and documentation with the incoming changes, run a headless codex (OpenAI Codex CLI) review of the result, and verify with the project's format/lint/build/test gates (auto-detected: Taskfile, then Makefile, then language-native). Resolves rebase conflicts itself but confirms risky resolutions via AskUserQuestion. Accepts local branch names or remote refs (e.g. origin/main — fetched first, rebased onto directly). Invoke manually with the input branch name, e.g. to bring main into your feature branch.
+description: Rebase the current branch onto an input branch so all of the input branch's changes land in the current branch with linear history; the input branch is never modified. Then reconcile the current branch's own code, tests, and documentation with the incoming changes, run a `/codex:review --background` review of the result, and verify with the project's format/lint/build/test gates (auto-detected: Taskfile, then Makefile, then language-native). Resolves rebase conflicts itself but confirms risky resolutions via AskUserQuestion. Accepts local branch names or remote refs (e.g. origin/main — fetched first, rebased onto directly). Invoke manually with the input branch name, e.g. to bring main into your feature branch.
 ---
 
 # Rebase-branch skill
@@ -17,7 +17,7 @@ Run the read-heavy analysis and verification in a **`general-purpose` subagent**
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 1** — run the survey git commands and read the overlapping file diffs, returning a summary of which files changed on both sides and the likely conflict/inconsistency sites. Read-only; no state change.
   - **Step 3 (analysis only)** — hand the `<base>..<pre-rebase-sha>` delta and the input's changes to a subagent that hunts semantic inconsistencies (stale calls, contradicting tests/docs, duplicated helpers) and returns a list of sites to fix. The main loop makes the edits and owns any design-choice question.
-  - **Step 4** — run the `codex exec review --base <input-sha> …` command and return the raw findings verbatim (also written to the scratch file); optionally a second subagent adjudicates them into the disposition table. The main loop applies accepted fixes and owns the ambiguous/invasive gate.
+  - **Step 4** — launch `/codex:review --background --base <input-sha>`, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file); optionally a second subagent adjudicates them into the disposition table. The main loop applies accepted fixes and owns the ambiguous/invasive gate.
   - **Step 5** — run the auto-detected format/lint/build/test gate and return pass/fail plus only the failing output.
 
 Give each subagent a self-contained prompt: the exact commands, the SHAs/branch names, and the precise result shape to return.
@@ -87,20 +87,18 @@ The rebase only resolves *textual* overlap. Now hunt **semantic** inconsistencie
 
 Make the minimal edits that restore consistency, following the repo's own conventions (tests updated alongside behavior, doc style matched). Commit reconciliation edits as one or a few clearly-labeled commits on the current branch (e.g. `Reconcile <area> with <input-branch> changes`) — do not amend the replayed commits. If a reconciliation requires choosing between the two branches' designs, use AskUserQuestion.
 
-## Step 4 — Codex review of the rebased result
+## Step 4 — Codex review of the rebased result via `/codex:review --background`
 
-Review what the current branch now adds on top of the input — the replayed commits plus reconciliation (the input's own changes were already reviewed on their way into that branch):
+Review what the current branch now adds on top of the input — the replayed commits plus reconciliation (the input's own changes were already reviewed on their way into that branch). Use the **`/codex:review --background`** flow with the input tip as the diff base; `--background` detaches the run, so recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings):
 
 ```bash
-codex exec review --base <input-sha> "<instructions>"
+/codex:review --background --base <input-sha>
 ```
 
-With `<instructions>`:
+`/codex:review` is native-review only and **takes no custom focus text** — its built-in review prompt already covers correctness, conflict resolutions that dropped one side's intent, code/test/doc inconsistencies, error-handling, and concurrency. CLAUDE.md-convention enforcement happens in the adjudication below, not in the review call. Concretely, this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--background --base <input-sha>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
 
-> Review for: correctness bugs introduced by the rebase, conflict resolutions that dropped one side's intent, inconsistencies between code/tests/docs, error-handling gaps, concurrency hazards, and violations of the conventions in CLAUDE.md (if present). For each finding output a numbered item with: file:line, severity (high/medium/low), the issue, and the suggested fix. Output findings only.
-
-- Save raw output to a scratch file (e.g. `/tmp/rebase-review-<current>.md`); do not commit it.
-- If the `review` subcommand is unavailable, fall back to `codex exec --sandbox read-only "<instructions plus changed-file list>"`. If codex is not installed or errors, do not silently skip — tell the user and use AskUserQuestion (retry, self-review pass, or continue without).
+- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Save that output verbatim to a scratch file (e.g. `/tmp/rebase-review-<current>.md`); do not commit it.
+- If codex is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip — tell the user and use AskUserQuestion (retry, self-review pass, or continue without).
 - **Validate every finding before acting** — codex output is hypotheses, not instructions. Mark each accept/reject/defer with evidence; rejections include why. Fix accepted findings (asking first when a fix is ambiguous or invasive), present the disposition table.
 
 ## Step 5 — Format, lint, build, test (auto-detect the toolchain)
