@@ -34,7 +34,7 @@ Run the expensive, self-contained drafting work in a **`general-purpose` subagen
 
 Give the subagent a self-contained prompt: the exact commit range, the file-format conventions above, and the precise result shape to return. The main loop never delegates the file write itself.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in one message rather than one at a time. This skill delegates a single drafting subagent (Step 2a bootstrap *or* Step 2b update, never both), so there is no independent peer to run alongside — the rule simply doesn't bite here. Keep the one drafting call as-is.
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in one message rather than one at a time. In **update mode** (Step 2b) there is a single drafting subagent and no independent peer — keep that one call as-is. In **bootstrap mode** (Step 2a) over a large history (roughly 100+ commits), split the `git log` output into contiguous date ranges and launch one drafting subagent per range **in a single message**, each receiving its exact commit range and the file-format conventions and returning only its range's `## YYYY-MM-DD` sections; the main loop concatenates the returned sections newest-first and writes the file. The ranges are disjoint so the drafts share no state; the `CHANGELOG.md` write itself is never parallelized.
 
 ## Step 1 — Inspect state
 

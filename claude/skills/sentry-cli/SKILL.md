@@ -24,6 +24,10 @@ Best practices and operational guidance for AI coding agents using the Sentry CL
 - **Use `--json` for machine-readable output** — pipe through `jq` for filtering. Human-readable output includes formatting that is hard to parse.
 - **The CLI auto-detects org/project** — most commands work without explicit targets by checking `.sentryclirc` config files, scanning for DSNs in `.env` files and source code, and matching directory names. Only specify `<org>/<project>` when the CLI reports it can't detect the target or detects the wrong one.
 
+### Parallel Investigation with Subagents
+
+When a task spans several independent Sentry objects — triaging N unresolved issues, comparing multiple traces, checking release health across projects — fan the work out across **`general-purpose` subagents launched in a single message** (via the `Agent`/`Task` tool), one per issue/trace/project, rather than investigating them one at a time. Each subagent gets a self-contained prompt (the exact commands, the item ID, and the result shape to return), runs the read-only `--json` commands for its item (`sentry issue view/explain`, `sentry trace view`, …), and returns a compact summary — the verbose CLI output stays out of the main context, and the main loop merges the summaries. Two hard rules: parallel subagents run **read-only** commands only — every mutation (`resolve`, `unresolve`, `archive`, `merge`, `delete`, `trial start`) stays sequential in the main loop behind its confirmation gate — and don't fan out for a single object; one issue is one direct command.
+
 ### Design Principles
 
 The `sentry` CLI follows conventions from well-known tools — if you're familiar with them, that knowledge transfers directly:

@@ -7,41 +7,75 @@
 // custom settings, run `zed: open default settings` from the
 // command palette (cmd-shift-p / ctrl-shift-p)
 {
-    "agent": {
-        "dock": "right",
-        "favorite_models": [],
-        "model_parameters": [],
+    "diff_view_style": "split",
+    "proxy": "",
+    "unnecessary_code_fade": 0.25,
+    "agent_servers": {
+        "codex-acp": {
+            "type": "registry",
+        },
+        "claude-acp": {
+            "type": "registry",
+        },
     },
+
+    "agent": {
+        "play_sound_when_agent_done": "when_hidden",
+        "single_file_review": true,
+        "dock": "right",
+        "sidebar_side": "right",
+    },
+
     "git_panel": {
         "dock": "left",
     },
-    "icon_theme": "Material Icon Theme",
-    "theme": "Ayu Mirage",
+
+    "icon_theme": "Zed (Default)",
+    "theme": {
+        "mode": "system",
+        "light": "One Dark Pro Max",
+        "dark": "One Dark Pro Glass",
+    },
+
     "auto_update": false,
-    "ui_font_size": 16,
-    "buffer_font_size": 16,
-    "buffer_line_height": { "custom": 1.4 },
-    "toolbar": { "breadcrumbs": false, "quick_actions": false },
+    "ui_font_size": 13.0,
+    "buffer_font_size": 12.0,
+    "buffer_line_height": "comfortable",
+    "toolbar": {
+        "selections_menu": false,
+        "agent_review": false,
+        "breadcrumbs": false,
+        "quick_actions": false,
+        "code_actions": true,
+    },
+
     "project_panel": {
+        "hide_root": true,
+        "git_status_indicator": true,
+        "diagnostic_badges": true,
+        "show_diagnostics": "errors",
+        "auto_fold_dirs": false,
+        "button": true,
         "entry_spacing": "standard",
         "git_status": true,
         "auto_reveal_entries": true,
         "dock": "left",
     },
+
     "git": {
         "git_gutter": "tracked_files",
-        "inline_blame": { "enabled": false },
+        "inline_blame": { "enabled": true },
     },
+
     "tab_size": 4,
     "hard_tabs": false,
-    "cursor_blink": false,
     "preferred_line_length": 90,
     "soft_wrap": "editor_width",
-    "ui_font_family": "JetBrainsMono Nerd Font",
-    "buffer_font_family": "JetBrainsMono Nerd Font",
+    "ui_font_family": "JetBrainsMono Nerd Font Mono",
+    "buffer_font_family": "JetBrainsMono Nerd Font Mono",
     "base_keymap": "JetBrains",
     "show_edit_predictions": false,
-    "relative_line_numbers": "enabled",
+    "relative_line_numbers": "disabled",
     "format_on_save": "on",
     "remove_trailing_whitespace_on_save": true,
     "ensure_final_newline_on_save": true,
@@ -50,30 +84,37 @@
     "inlay_hints": {
         "enabled": true,
     },
+
     "diagnostics": {
         "inline": {
             "enabled": true,
         },
     },
+
     "telemetry": {
         "metrics": false,
         "diagnostics": false,
     },
+
     "indent_guides": {
         "enabled": true,
         "coloring": "indent_aware",
     },
+
     "wrap_guides": [90],
     "show_wrap_guides": true,
     "tab_bar": {
         "show": true,
     },
+
     "scrollbar": {
         "show": "never",
     },
+
     "buffer_font_features": {
         "calt": false,
     },
+
     "autosave": "on_focus_change",
     "restore_on_startup": "last_workspace",
     "confirm_quit": true,
@@ -84,8 +125,11 @@
         "current_line_highlight": "line",
     },
     "terminal": {
+        "font_size": 12.0,
+        "shell": "system",
         "working_directory": "current_project_directory",
         "dock": "right",
+        "line_height": "comfortable",
     },
     "outline_panel": {
         "dock": "right",
@@ -93,9 +137,144 @@
     "collaboration_panel": {
         "dock": "right",
     },
+
     "vim_mode": true,
     "vim": {
         "use_system_clipboard": "always",
         "use_smartcase_find": true,
+    },
+
+    // Session settings
+    // https://zed.dev/docs/reference/all-settings#session
+    "session": {
+        "trust_all_worktrees": true,
+    },
+
+    // Which-key (vim keybinding helper) settings
+    // https://zed.dev/docs/visual-customization#vim-mode
+    "which_key": {
+        "delay_ms": 500,
+        "enabled": true,
+    },
+
+    // File type associations
+    // https://zed.dev/docs/configuring-languages#file-associations
+    "file_types": {
+        "Dockerfile": ["Dockerfile", "Dockerfile.*"],
+        "JSON": ["json", "jsonc", "*.code-snippets"],
+    },
+
+    // File scan exclusions (files to hide from file explorer and search)
+    // https://zed.dev/docs/reference/all-settings#file-scan-exclusions
+    "file_scan_exclusions": [
+        "**/.git",
+        "**/.svn",
+        "**/.hg",
+        "**/CVS",
+        "**/.DS_Store",
+        "**/Thumbs.db",
+        "**/.classpath",
+        "**/.settings",
+        // Above is default from Zed
+        "**/out",
+        "**/dist",
+        "**/.husky",
+        "**/.turbo",
+        "**/.vscode-test",
+        "**/.vscode",
+        "**/.next",
+        "**/.storybook",
+        "**/.tap",
+        "**/.nyc_output",
+        "**/report",
+        "**/node_modules",
+        "**/.idea",
+    ],
+
+    // Whether to colorize matching brackets (rainbow brackets)
+    // https://zed.dev/docs/reference/all-settings#colorize-brackets
+    "colorize_brackets": true,
+
+    // Whether and how to display code lenses from language servers
+    // https://zed.dev/docs/reference/all-settings#code-lens
+    "code_lens": "menu",
+    // Whether to show signature help after completion or bracket pair inserted
+
+    // https://zed.dev/docs/reference/all-settings#show-signature-help-after-edits
+    "show_signature_help_after_edits": false,
+
+    // Show method signatures when inside parentheses
+    // https://zed.dev/docs/reference/all-settings#auto-signature-help
+    "auto_signature_help": false,
+
+    // Hide variable values in private files (e.g., .env, .pem)
+    // https://zed.dev/docs/reference/all-settings#redact-private-values
+    "redact_private_values": true,
+
+    // Default behavior for opening files via CLI
+    // https://zed.dev/docs/reference/all-settings#cli-default-open-behavior
+    "cli_default_open_behavior": "existing_window",
+
+    // Status bar settings
+    // https://zed.dev/docs/reference/all-settings#status-bar
+    "status_bar": {
+        "show_active_file": false,
+        "experimental.show": false,
+    },
+    // Gutter settings
+    // https://zed.dev/docs/reference/all-settings#gutter
+    "gutter": {
+        "line_numbers": true,
+    },
+
+    // Cursor shape: bar, block, underline, hollow
+    // https://zed.dev/docs/reference/all-settings#cursor-shape
+    "cursor_shape": "bar",
+
+    // Whether the cursor blinks
+    // https://zed.dev/docs/reference/all-settings#cursor-blink
+    "cursor_blink": true,
+
+    // Use macOS native window tabs
+    // https://zed.dev/docs/reference/all-settings#use-system-tabs
+    "use_system_window_tabs": true,
+
+    // Show whitespace characters: all, selection, none, boundary
+    // https://zed.dev/docs/reference/all-settings#show-whitespaces
+    "show_whitespaces": "all",
+
+    // Finder model width
+    // https://zed.dev/docs/reference/all-settings#file-finder
+    "file_finder": {
+        "modal_max_width": "medium",
+    },
+
+    // Editor vertical scroll margin (nvim's scrolloff=4)
+    // Lines to keep above/below cursor
+    // https://zed.dev/docs/reference/all-settings#vertical-scroll-margin
+    "vertical_scroll_margin": 4,
+
+    // Editor horizontal scroll margin (nvim's sidescrolloff=8)
+    // Columns to keep left/right of cursor
+    // https://zed.dev/docs/reference/all-settings#horizontal-scroll-margin
+    "horizontal_scroll_margin": 8,
+
+    // Confirm before quitting with unsaved changes (nvim's confirm=true)
+    // https://zed.dev/docs/reference/all-settings#confirm-quit
+    // "confirm_quit": true,
+
+    // Only show error on tab
+    // https://zed.dev/docs/reference/all-settings#editor-tabs
+    "tabs": {
+        "file_icons": true,
+        "git_status": true,
+        "show_diagnostics": "errors",
+    },
+
+    // Zen mode / centered layout
+    // https://zed.dev/docs/reference/all-settings#centered-layout
+    "centered_layout": {
+        "left_padding": 0.15,
+        "right_padding": 0.15,
     },
 }

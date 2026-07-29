@@ -1,6 +1,6 @@
 ---
 name: sync-readme
-description: Generate or refresh the repository's README.md for future engineers and product managers by analyzing the codebase, spec files, the docs/ folder and other documentation, the tests, and the project's own lint/format/build/test/run commands — then verifying those commands actually work before documenting them. Produces a README with six sections (project overview, brief file structure, verified lint/format/build/test/run instructions, ASCII diagrams of the critical workflows, critical conventions/pitfalls, and the project's coding styles), then runs `/codex:adversarial-review --background` to review the README, validates every codex finding against the actual repo, and folds the ones that hold up back into the file. Invoke manually when the README is missing, stale, or after a change that alters how the project is built, tested, or run.
+description: Generate or refresh the repository's README.md by analyzing the codebase, specs, docs, and tests — verifying the lint/format/build/test/run commands actually work before documenting them — then codex-reviewing the result. Produces six sections — project overview, brief file structure, verified commands, ASCII diagrams of critical workflows, conventions/pitfalls, and coding style. Invoke manually when the README is missing, stale, or after a change that alters how the project is built, tested, or run.
 ---
 
 # Sync README skill
@@ -38,8 +38,10 @@ tool) and keep orchestration in the main loop. The split is fixed:
   - **Step 5** — launch the `/codex:adversarial-review --background` review of the README, poll
     `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings
     verbatim (also written to the scratch file). The codex transcript stays in the subagent.
-  - **Step 6** — hand the findings plus the Step 1 summaries and the Step 2 verified-command log to a
-    subagent that adjudicates each finding and returns the accept/reject/defer disposition table.
+  - **Step 6** — split the findings into disjoint batches (~3–5 each; contradictory findings share a
+    batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a
+    single message**, each getting the Step 1 summaries and the Step 2 verified-command log and
+    returning its slice of the accept/reject/defer disposition table. The main loop merges the slices.
 
 Keep **Step 2 (command verification) in the main loop** — it runs real build/test commands whose
 output you must see, and a hanging or destructive command must be able to stop and ask the user.
@@ -51,7 +53,8 @@ the result to return.
 `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent
 subagents one at a time across turns. Step 1's four readers (source tree + entry points, `specs/`,
 `docs/` + other docs, tests) are independent and **must** go out in one message; only the review →
-adjudication path (Step 5 → Step 6) is a serial chain. Step 2 command verification stays in the main
+adjudication path (Step 5 → Step 6) is a serial chain, and within Step 6 the adjudication batches
+themselves fan out in one message. Step 2 command verification stays in the main
 loop (not parallelized) because its commands can hang or mutate state and may need to stop and ask.
 
 ## Step 0 — Establish context and the command surface

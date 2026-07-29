@@ -1,6 +1,6 @@
 ---
 name: implement-spec
-description: Implement a feature spec directory end to end as a principal software engineer. Takes a spec directory <spec-dir> (containing plan.md, requirements.md, validation.md). Reads the three spec files plus the repo's conventions, implements plan.md to satisfy requirements.md following the project's TDD/workflow rules, validates against validation.md, then runs the /simplify skill on the changed code, runs the /codex-review skill and folds in the findings that hold up, verifies with the project's format/lint/build/test gates, and finally commits and pushes the branch to remote. Invoke manually when a spec under specs/<name>/ is ready to build.
+description: Implement a feature spec end to end as a principal software engineer — resolves the specs/<name> branch to its git worktree (reusing an existing worktree, else creating branch and worktree as needed) and works there, reads the spec trio plus the repo's conventions, implements plan.md test-first to satisfy requirements.md, validates against validation.md, runs the /simplify and /codex-review skills on the result, verifies with the project's gates, then commits and pushes the branch. Takes a spec directory containing plan.md, requirements.md, and validation.md as the argument (inferred from a specs/<name> branch if omitted). Invoke manually when a spec under specs/<name>/ is ready to build.
 ---
 
 # Implement-spec skill
@@ -46,15 +46,21 @@ Give each subagent a self-contained prompt: the exact spec paths, the commands t
 The skill's argument is `<spec-dir>` (e.g. `specs/APP-731`).
 
 - If no argument is given, infer it from the current branch: a branch `specs/<name>` maps to spec dir `specs/<name>`. If you cannot infer a single unambiguous directory, stop and ask which spec to implement — do not guess.
-- Confirm `<spec-dir>` exists and contains all three of `requirements.md`, `plan.md`, `validation.md`. If any is missing, stop and tell the user which — an incomplete spec is not implementable. Offer to run `/feature-spec` first.
-- Run `git status --short`. If the working tree carries unrelated uncommitted changes, stop and ask how to proceed (commit/stash/abort) — don't fold someone else's work into this change.
-- Confirm you are on a feature branch, not the default branch. Resolve the default branch:
-  ```bash
-  git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
-    || (git show-ref --verify --quiet refs/heads/main && echo main) \
-    || (git show-ref --verify --quiet refs/heads/master && echo master)
-  ```
-  If `HEAD` is on that default branch, stop and ask the user to name (or let you create) a feature branch before implementing — this skill ends by pushing, and pushing straight to the default branch is almost never intended.
+- Derive the feature branch from the spec dir: `<branch>` is `specs/<name>` for spec dir `specs/<name>`.
+- **Worktree discovery** — run `git worktree list --porcelain` and look for a `branch refs/heads/<branch>` entry, then branch on what you find:
+  - A worktree already has `<branch>` checked out → `cd` to that worktree's root and run **every** subsequent step from there — the reads, the implementation edits, the `/simplify` and `/codex-review` invocations, the gates, and the commit/push. (The Skill tool and the gates inherit the session's working directory, so this `cd` is load-bearing, not cosmetic.)
+  - `<branch>` exists locally but no worktree has it → attach it: `git worktree add <wt-path> <branch>`, then `cd <wt-path>`.
+  - `<branch>` does not exist → resolve the default branch:
+    ```bash
+    git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
+      || (git show-ref --verify --quiet refs/heads/main && echo main) \
+      || (git show-ref --verify --quiet refs/heads/master && echo master)
+    ```
+    and create the branch inside a fresh worktree: `git worktree add <wt-path> -b <branch> <base>`, then `cd <wt-path>`.
+
+  `<wt-path>` follows the same convention as `/feature-spec`: `<repo-parent>/<repo-dirname>-worktrees/<slug>`, where `<slug>` is `<branch>` with `/` replaced by `-`; never nest a worktree inside the repo's own working tree. Working in the branch's dedicated worktree also guarantees `HEAD` is never the default branch — this skill ends by pushing, and pushing straight to the default branch is almost never intended.
+- Confirm `<spec-dir>` exists **inside the worktree** and contains all three of `requirements.md`, `plan.md`, `validation.md`. If any is missing, stop and tell the user which — an incomplete spec is not implementable. Offer to run `/feature-spec` first.
+- Run `git status --short` **in the worktree**. If it carries unrelated uncommitted changes (possible when reusing an existing worktree), stop and ask how to proceed (commit/stash/abort) — don't fold someone else's work into this change.
 
 ## Step 1 — Build the implementation brief (subagent)
 
@@ -130,13 +136,13 @@ State, per the repo's handoff checklist if it has one:
 - **Simplify** — what `/simplify` cleaned up.
 - **Review** — `/codex-review`'s finding count and accept/reject/defer breakdown, with one-line reasons for rejections.
 - **Checks** — which gates ran (format/lint/build/test) and any skipped, with why.
-- **Commit & push** — the commit(s) and the branch pushed.
+- **Commit & push** — the commit(s), the branch pushed, and the worktree path the work lives in.
 - **Remaining risk** — deferred items and anything review/validation could not cover, especially around safety, ordering, concurrency, performance, or architecture boundaries.
 
 ## Stop-and-ask conditions (use AskUserQuestion; never silently proceed)
 
 - `<spec-dir>` is missing or lacks any of the three spec files (Step 0).
-- The working tree carries unrelated changes, or `HEAD` is on the default branch (Step 0).
+- The resolved worktree carries unrelated uncommitted changes (Step 0).
 - `plan.md`/`requirements.md` contradict each other or a documented repo constraint (Step 2).
 - A real implementation fork with trade-offs (Step 3).
 - `/codex-review` reports codex is unavailable (Step 5, defer to that skill's own gate).

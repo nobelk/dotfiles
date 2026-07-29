@@ -1,6 +1,6 @@
 ---
 name: feature-spec
-description: Scaffold planning docs for the next roadmap phase. Takes a git branch name as input (falls back to YYYY-MM-DD-feature-name derived from specs/roadmap.md if omitted). The feature branch is always created under the specs/ namespace (specs/<name>); names without the prefix are auto-prepended. Reads specs/roadmap.md, specs/mission.md, and specs/tech-stack.md, creates the branch, then asks the user one grouped AskUserQuestion (scope, key decision, validation) before writing specs/<name>/{plan.md, requirements.md, validation.md}. After writing, runs `/codex:adversarial-review --background` to review the spec files, validates each review finding, and updates the specs where findings hold up. Invoke manually when starting a new feature.
+description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), gathers scope/key-decision/validation answers in one grouped AskUserQuestion, writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs and folds validated findings back in. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
 ---
 
 # Feature spec skill
@@ -15,14 +15,14 @@ Two related identifiers, derived from one input:
 
 Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): branch-name normalization and the `git switch -c` **branch creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), and the Step 7 report. Subagents cannot prompt the user, so every gate stays here.
+- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), and the Step 7 report. Subagents cannot prompt the user, so every gate stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 5** — launch the `/codex:adversarial-review --background` review of the three spec files, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
-  - **Step 6** — hand the findings plus the Step 3 answers and the mission/tech-stack constraints to a subagent that adjudicates each finding and returns the accept/reject/defer disposition table. The main loop applies non-decision edits, and any finding that would change a user decision goes back through `AskUserQuestion` here — never in the subagent.
+  - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 answers and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a user decision back through `AskUserQuestion` here — never in a subagent.
 
 Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The two delegated steps here (Step 5 codex run → Step 6 adjudication) form a serial chain, so they don't parallelize; but the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The Step 5 codex run → Step 6 adjudication is a serial chain (findings must exist before adjudication), but **within** Step 6 the adjudication batches fan out in parallel; and the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
 
 ## Step 0 — Read and normalize the branch name input
 
@@ -31,7 +31,10 @@ The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefl
 - If an argument is provided, normalize it: if it does not already start with `specs/`, prepend `specs/` to form `<branch-name>` (so `feat-x` becomes `specs/feat-x`). Skip the slug-derivation step in Step 2.
 - If no argument is provided, fall back to deriving `<branch-name>` as `specs/<today>-<feature-name>` per Step 2.
 - Validate the normalized name with `git check-ref-format --branch "<branch-name>"`. If invalid, stop and ask the user for a corrected name — do not silently sanitize.
-- If a branch with that name already exists locally (`git show-ref --verify --quiet refs/heads/<branch-name>`), use `AskUserQuestion` to ask whether to switch to it, pick a different name, or delete it.
+- **Worktree discovery** — run `git worktree list --porcelain` and look for a `branch refs/heads/<branch-name>` entry:
+  - A worktree already has the branch checked out → reuse it: record its root as the working directory for every subsequent step and skip creation in Step 2.
+  - No worktree has it, but the branch exists locally (`git show-ref --verify --quiet refs/heads/<branch-name>`) → use `AskUserQuestion` to ask whether to attach it to a new worktree, pick a different name, or delete it and recreate fresh.
+  - Neither exists → Step 2 creates the branch inside a new worktree.
 
 ## Step 1 — Read the roadmap and supporting docs
 
@@ -44,7 +47,7 @@ If `specs/roadmap.md` is missing, stop and ask the user what feature to spec out
 
 If `specs/mission.md` or `specs/tech-stack.md` is missing, note it and proceed with what you have.
 
-## Step 2 — Resolve the branch name and create the branch
+## Step 2 — Resolve the branch name and create the branch in its worktree
 
 If the user supplied a branch name in Step 0, use the normalized `specs/`-prefixed form as `<branch-name>` and skip the slug derivation below.
 
@@ -52,9 +55,7 @@ Otherwise, derive `<branch-name>` as `specs/<today>-<feature-name>`:
 - `<feature-name>`: kebab-case, ≤4 words, derived from the phase name on the roadmap.
 - `<today>`: the local date in `YYYY-MM-DD`.
 
-Before branching:
-- Run `git status --short`. If the working tree is dirty, use `AskUserQuestion` to ask how to proceed (commit/stash/abort) — don't carry uncommitted changes onto the new branch.
-- Resolve the default branch:
+Resolve the default branch:
 
   ```bash
   git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
@@ -63,15 +64,19 @@ Before branching:
   ```
 
   `<base>` is a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else the local
-  `main`/`master` fallback — both are valid start points for `git switch -c`. (Don't strip
+  `main`/`master` fallback — both are valid start points for `git worktree add`. (Don't strip
   `origin/`: a bare `main` fails in clones with no local default branch.)
 
-Then create the branch, **branching on what Step 0 found**:
-- New name (the common case) → `git switch -c <branch-name> <base>`.
-- Step 0 found the branch already exists and the user chose **switch to it** → `git switch <branch-name>`
-  (no `-c`, no `<base>`); you are now on the existing branch, so skip ahead to Step 3.
+Define `<wt-path>` as `<repo-parent>/<repo-dirname>-worktrees/<slug>`, where `<slug>` is `<branch-name>` with `/` replaced by `-` (e.g. repo `~/sources/app` + branch `specs/2026-07-29-x` → `~/sources/app-worktrees/specs-2026-07-29-x`). Never nest a worktree inside the repo's own working tree.
+
+Then create or attach the worktree, **branching on what Step 0 found**:
+- Branch is new (the common case) → `git worktree add <wt-path> -b <branch-name> <base>` — creates the branch and its worktree in one step. The current checkout (and any uncommitted work in it) is left untouched, so no stash/dirty-tree gate is needed.
+- Step 0 found a worktree that already has the branch → nothing to create; use that worktree's root (from Step 0) and skip ahead to Step 3.
+- The branch exists unattached and the user chose **attach it** → `git worktree add <wt-path> <branch-name>`.
 - The user chose **delete it** (the destructive option in the Step 0 `AskUserQuestion`, so no second confirmation) → `git branch -D <branch-name>` followed by
-  `git switch -c <branch-name> <base>`.
+  `git worktree add <wt-path> -b <branch-name> <base>`.
+
+Finally `cd` to the worktree root — every subsequent step (the spec-file writes, the codex review, the gates) runs from there, `specs/<name>/` is written under it, and subagent prompts carry absolute paths inside the worktree.
 
 ## Step 3 — Gather spec inputs (one grouped AskUserQuestion)
 
@@ -106,7 +111,7 @@ Order so each group can land as its own commit/PR. Group 1 should be the smalles
 
 ## Step 5 — Codex review of the spec files via `/codex:adversarial-review --background`
 
-Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three new untracked spec files are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the repo root:
+Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three new untracked spec files are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the worktree root (the Step 2 `cd` already put you there):
 
 ```bash
 /codex:adversarial-review --background "<focus>"
@@ -144,3 +149,4 @@ Print the three file paths and a one-sentence summary of each, plus the codex re
 - The branch is always `specs/<name>` and the docs directory is always `specs/<name>/` — same `<name>`, derived once in Step 0/2; keep them in sync. If `<name>` itself contains further slashes (e.g. `specs/feat/auth`), the spec directory nests accordingly (`specs/feat/auth/`).
 - If the project already has a `specs/<name>/` directory, use `AskUserQuestion` to ask whether to overwrite, append, or pick a different name. Run this check **before Step 4 writes the files**; if the user picks a different name, loop back through the Step 0 name normalization and branch-existence check so the branch and `specs/<name>/` names stay in sync.
 - If the user runs this skill on a branch that isn't the default branch, warn them — they may have meant to run it after merging their current work.
+- The skill never removes worktrees. When a feature is merged and done, the user cleans up with `git worktree remove <wt-path>` (then `git worktree prune`); mention this in the Step 7 report when a worktree was created.
