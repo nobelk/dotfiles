@@ -42,6 +42,7 @@ In parallel, read whichever of these exist:
 - `specs/roadmap.md` — identify the next unstarted phase (the feature to spec).
 - `specs/mission.md` — product north star; informs scope decisions.
 - `specs/tech-stack.md` — informs tech choices in `plan.md`.
+- `CLAUDE.md` / `AGENTS.md` and any architecture or convention docs they cite - the repo's engineering standards (layering rules, TDD mandate, test idioms, quality gates) that `plan.md`'s task groups and `validation.md`'s checklist must respect.
 
 If `specs/roadmap.md` is missing, stop and ask the user what feature to spec out — don't fabricate a phase.
 
@@ -104,9 +105,17 @@ A series of **numbered task groups**. Each group:
 
 Order so each group can land as its own commit/PR. Group 1 should be the smallest viable slice that's mergeable on its own.
 
+Open the plan with a short **Engineering standards** section stating the invariants every group follows once - the repo's own documented conventions (from the Step 1 reads) win wherever they overlap:
+- **TDD** - behavior changes are implemented test-first: each group lists the failing test(s) to write before the code that makes them pass; the test list is part of the group, not an afterthought.
+- **Clean architecture** - preserve the repo's established dependency boundaries; where the repo defines layered/hexagonal rules, keep dependencies pointing inward (consumer-defined interfaces, domain logic free of transport/DB/framework concerns).
+- **Standard design patterns** - where a group needs a non-obvious abstraction, the plan names the well-known pattern (Strategy, Repository, Ports & Adapters, Functional Options, …) and why; plain code wins when it suffices, and the pattern name lives in the plan - never forced into code identifiers or comments.
+- **Clean, idiomatic code** - small, single-purpose units with intention-revealing names; no duplication introduced by the change (deliberate test duplication for clarity is fine); style precedence: documented repo rules, then the surrounding code's idiom, then the language community's conventions.
+
+Each task group then states only what is concrete to it - its tests, the package/layer it lands in, and any pattern decision that applies - never a restatement of the standards boilerplate.
+
 ### `validation.md`
 - **Success criteria** — populated from the Validation answer.
-- **Checklist** — concrete checkboxes: tests to add, manual checks, metrics/dashboards to confirm.
+- **Checklist** - concrete checkboxes: tests to add, the repo's own quality gates (format, lint, build, full test suite, and any architecture/static-analysis checks it defines), manual checks, metrics/dashboards to confirm.
 - **Done when** — one line naming the binary signal (test passes, metric crosses threshold, etc.).
 
 ## Step 5 — Codex review of the spec files via `/codex:adversarial-review --background`
@@ -119,7 +128,7 @@ Get an independent second-model review of the three files just written through t
 
 With `<focus>`:
 
-> Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, and specs/tech-stack.md if they exist — the specs must be consistent with them. Review for: internal contradictions between the three files, scope items in plan.md missing from requirements.md (and vice versa), validation criteria that don't actually verify the stated requirements, ambiguous or untestable acceptance criteria, missing edge cases or risks, and conflicts with the roadmap/mission/tech-stack. For each finding output a numbered item with: file, the issue, and the suggested change. Output findings only — do not rewrite the documents.
+> Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md / any convention or architecture docs it cites, if they exist — the specs must be consistent with them. Review for: internal contradictions between the three files, scope items in plan.md missing from requirements.md (and vice versa), validation criteria that don't actually verify the stated requirements, ambiguous or untestable acceptance criteria, missing edge cases or risks, and conflicts with the roadmap/mission/tech-stack. Also check plan.md's task groups against the repo's engineering standards: TDD sequencing (tests listed before the code they pin), respect for the repo's dependency/layering boundaries, overengineered or needless abstractions, and steps that would produce non-idiomatic or untestable code. For each finding output a numbered item with: file, the issue, and the suggested change. Output findings only — do not rewrite the documents.
 
 Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
 - **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-spec-review-<name>.md`) so Step 6 is auditable. Do **not** commit this file.

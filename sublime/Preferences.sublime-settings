@@ -1,16 +1,20 @@
 {
-    "ignored_packages":
-    [
-        "Vintage",
-    ],
-    "update_check": true,
-    "index_files": true,
-    "index_exclude_gitignore": true,
-    "index_exclude_patterns": ["*.log"],
+    // --- Indexing / navigation ---
+    "index_exclude_patterns": ["*.log", "*.min.js", "*.min.css", "*.map"],
+    "goto_anything_exclude_gitignore": true,
+
+    // --- Files on disk ---
+    "hot_exit": "always",
+    // Pinned (defaults) so agent-made external edits always reload cleanly.
     "reload_file_on_change": true,
-    "hot_exit": true,
-    "auto_indent": true,
-    "smart_indent": true,
+    "always_prompt_for_file_reload": false,
+    // Also reload while Sublime is unfocused, not just on refocus.
+    "reload_file_in_background": true,
+
+    // --- Indentation (language-specific overrides live in
+    // Python/Go/JavaScript.sublime-settings) ---
+    "translate_tabs_to_spaces": true,
+    "tab_size": 4,
     "indent_guide_options":
     [
         "draw_normal",
@@ -23,58 +27,72 @@
     // win: alt-tab to the terminal and Claude always reads what you actually see.
     "save_on_focus_lost": true,
 
-    // Reload from disk without prompting when Claude edits an open file.
-    // (ST4 default, pinned here so it can't drift.) Ctrl+Z still undoes a reload.
-    "always_prompt_for_file_reload": false,
-
-    // Write in place instead of write-temp-then-rename. Rename-based saves fire
-    // delete+create at file watchers, which upsets dev servers and hot reload.
-    "atomic_save": false,
-
-    // Gutter marks showing your working tree vs. git HEAD. This is how you
-    // review what an agent changed without leaving the editor.
+    // Gutter marks showing your working tree vs. git. Pinned; "head" (not the
+    // default "index") keeps staged changes visible in the mini-diff too.
     "mini_diff": true,
     "show_git_status": true,
+    "git_diff_target": "head",
+
+    // --- Save hygiene ---
     "ensure_newline_at_eof_on_save": true,
-    "show_definitions": true,
+    // Trim on save, but only lines this edit touched, so saves don't pollute
+    // diffs across untouched lines.
+    "trim_trailing_white_space_on_save": "all",
+    "trim_only_modified_white_space": true,
+    "draw_white_space": ["selection", "trailing"],
+
+    // --- Project tree noise ---
     "folder_exclude_patterns": [
         ".svn",
         ".git",
         ".hg",
+        "CVS",
+        ".Trash",
+        ".Trash-*",
         "__pycache__",
         "node_modules",
-        "*.egg-info"
+        "*.egg-info",
+        ".venv",
+        "venv",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".gradle",
+        ".idea",
+        "dist",
+        "target",
+        ".next",
+        ".terraform",
+        "coverage"
     ],
-    "file_exclude_patterns": ["*.pyc", "*.pyo", "*.exe", "*.dll", "*.obj","*.o", "*.a", "*.lib", "*.so", "*.dylib", "*.ncb", "*.sdf", "*.suo", "*.pdb", "*.idb", ".DS_Store", ".directory", "desktop.ini", "*.class", "*.psd", "*.db", "*.sublime-workspace"],
-    "binary_file_patterns": ["*.jpg", "*.jpeg", "*.png", "*.gif", "*.ttf", "*.tga", "*.dds", "*.ico", "*.eot", "*.pdf", "*.swf", "*.jar", "*.zip"],
-    "image_file_patterns": ["*.jpeg", "*.jpg", "*.gif", "*.png", "*.ico", "*.bmp", "*.tga", "*.psd", "*.ppm", "*.pgm", "*.webp", "*.hdr"],
+    "file_exclude_patterns": ["*.pyc", "*.pyo", "*.pyd", "*.exe", "*.dll", "*.obj", "*.o", "*.a", "*.lib", "*.so", "*.dylib", "*.ncb", "*.sdf", "*.suo", "*.pdb", "*.idb", ".DS_Store", ".directory", "desktop.ini", "*.class", "*.psd", "*.db", "*.sublime-workspace"],
+    "binary_file_patterns": ["*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp", "*.ttf", "*.otf", "*.woff", "*.woff2", "*.tga", "*.dds", "*.ico", "*.eot", "*.pdf", "*.swf", "*.jar", "*.war", "*.zip", "*.tar.gz", "*.tgz", "*.7z"],
 
+    // --- Editing ---
+    // Tab commits a completion; Enter always inserts a newline.
+    "auto_complete_commit_on_tab": true,
+    "find_selected_text": true,
+
+    // --- UI ---
     "highlight_modified_tabs": true,
-    "scroll_past_end": true,
-    "hardware_acceleration": "opengl",
     "highlight_line": true,
-    "scroll_speed": 1.0,
+    "scroll_past_end": true,
     "line_padding_top": 2,
     "line_padding_bottom": 2,
-    "color_scheme": "Mariana.sublime-color-scheme",
-    "font_face": "FiraMono Nerd Font Mono",
-    "font_size": 14,
-    "word_wrap": true,
-    "spell_check": true,
-    "translate_tabs_to_spaces": true,
-    "tab_size": 4,
-    "highlight_line": true,
-    "auto_complete": false,
+    "show_encoding": true,
+    "show_line_endings": true,
     "open_files_in_new_window": "never",
-    "highlight_modified_tabs": true,
-    "find_selected_text": true,
-    "default_encoding": "UTF-8",
-    "draw_indent_guides": true,
-    "rulers": [[85,"dotted",2]],
-    "ruler_style": "dotted",
-    "update_check": true,
-    "trim_trailing_white_space_on_save": "all",
-    "ensure_newline_at_eof_on_save": true,
+    "rulers": [85],
+
+    // --- Appearance ---
+    "color_scheme": "ayu-dark.sublime-color-scheme",
+    "font_face": "FiraMono Nerd Font Mono",
+    "font_size": 13,
+    "theme": "Adaptive.sublime-theme",
+
+    // Personal spell-check dictionary (spell check off globally; F6 toggles
+    // it per view and these words apply then).
     "added_words":
     [
         "subarray",
@@ -95,6 +113,6 @@
         "substring",
         "Algoexpert",
         "Leetcode",
-        "Algomonster",
-    ],
+        "Algomonster"
+    ]
 }

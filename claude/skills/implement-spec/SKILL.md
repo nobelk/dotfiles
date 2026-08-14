@@ -20,8 +20,12 @@ If the repo has a `CLAUDE.md`, read it first and treat it as authoritative — i
 This is the bar for every step below — not decoration:
 
 - **Faithful to the spec, skeptical of it.** Implement what `requirements.md` actually asks. If the plan and the requirements disagree, or either contradicts the repo's documented constraints, stop and surface it — do not paper over it in code.
-- **Test-first.** Where the project mandates TDD, write the failing test that fails for the right reason before the implementation. Behavior changes ship with tests in the same change.
-- **Minimal and local.** Smallest change that satisfies the requirement; extend the package that owns the concern; no speculative abstraction, no scope creep beyond `plan.md`.
+- **Test-first (TDD) whenever possible.** Write the failing test that fails for the right reason before the implementation - by default, not only where the project mandates it. Skip TDD only for changes with no testable behavior (docs; generated output whose generator inputs are what get tested), and name each skipped case and its reason in the Step 8 report. Behavior changes ship with tests in the same change, and tests meet the same clean-code bar as production code.
+- **Clean code.** Small, single-purpose functions at one level of abstraction; intention-revealing names; no duplication *introduced by the change* - extract logic you would otherwise copy (deliberate test duplication that keeps a case readable is fine); comments only for the non-obvious *why*.
+- **Clean architecture.** Preserve the repo's established dependency structure; where it defines layering rules, keep dependencies pointing inward, define interfaces at the consumer boundary, and keep domain logic free of transport/DB/framework concerns; new code lands in the package that owns the concern.
+- **Standard design patterns.** Prefer well-known patterns (Ports & Adapters, Strategy, Repository, Functional Options, …) over bespoke abstractions - but only where an abstraction removes real duplication or isolates a dependency. Name the pattern in the report/PR so reviewers recognize it; never contort code identifiers or comments to carry the pattern name.
+- **Idiomatic style.** Precedence: documented repo rules, then the surrounding code's established idiom, then the language community's conventions (Effective Go, PEP 8, …) - in production code and tests alike, without cleaning up unrelated legacy code.
+- **Minimal and local.** Smallest change that satisfies the requirement; extend the package that owns the concern; no speculative abstraction, no scope creep beyond `plan.md`. If meeting a documented repo constraint would force a refactor wider than the plan's scope, stop and ask - neither creep the scope silently nor ship structure you know is wrong.
 - **Safety and correctness over convenience** when the domain is safety-critical — follow the repo's failure-direction and error-handling rules exactly.
 
 ## Subagent delegation
@@ -31,7 +35,7 @@ Run expensive, self-contained work in a **`general-purpose` subagent** (via the 
 - **Main loop owns** (never delegate):
   - Every `AskUserQuestion` gate (subagents cannot prompt the user): missing/invalid spec files (Step 0), a spec-vs-requirements contradiction (Step 2), an ambiguous implementation fork (Step 3), a failing gate unrelated to the change (Step 5), and the pre-push confirmation (Step 7).
   - **Invoking the `/simplify` and `/codex-review` skills** (Step 4 and Step 5) — the Skill tool runs in this conversation; it cannot be launched from inside a subagent.
-  - The implementation edits themselves stay in the main loop when they are tightly coupled across files (the common case for a coherent feature); delegate only a self-contained, well-bounded task group.
+  - The implementation edits themselves stay in the main loop when they are tightly coupled across files (the common case for a coherent feature); delegate only a self-contained, well-bounded task group - and give that subagent's prompt the principal-engineer posture standards, the TDD requirement, and the group's scope limits, with the result shape including the changed files and red-then-green test evidence.
   - The final commit/push (Step 7) and the Step 8 report.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 1** — read the spec trio, `CLAUDE.md`, the nearest existing package code/tests, and any ADRs the plan references; return a structured brief (relevant conventions, the files each task group will touch, the test patterns to mirror). Keeps the bulky reading out of the main context.
@@ -86,9 +90,9 @@ If you find a genuine contradiction or a requirement the plan does not cover, **
 
 Work through `plan.md` in order (it is ordered so each group is independently coherent). For each group:
 
-1. **Test first** where the project mandates TDD and the group changes behavior: write the failing test(s) that fail for the right reason, asserting against the `requirements.md`/`validation.md` contract. Verify they fail before implementing.
+1. **Test first (TDD)** whenever the group changes behavior a test can express (per the posture): write the failing test(s) that fail for the right reason, asserting against the `requirements.md`/`validation.md` contract. Verify they fail before implementing - and that the failure is the new test, not a pre-existing red in the package. Follow the repo's test idioms (e.g. table-driven cases named for the boundary they exercise).
 2. **Implement** the smallest change that makes the tests pass and satisfies the requirement. Stay inside the package that owns the concern; obey the layering/import rules from the brief.
-3. **Refactor** locally once green. Add godoc/contract docs the repo requires on new exported identifiers.
+3. **Refactor** locally once green, applying the posture's clean-code, pattern, and idiom standards to the changed code. Add godoc/contract docs the repo requires on new exported identifiers.
 4. Run the touched package's tests (e.g. `go test ./that/pkg -race -count=1`, or the repo's equivalent) before moving on, so you never stack a second group on a red first one.
 
 When a single implementation choice is genuinely ambiguous and the alternatives trade off (an API shape, sync vs async, where a seam goes), stop and ask via `AskUserQuestion` rather than guessing — but only for real forks, not routine decisions a principal engineer just makes.
