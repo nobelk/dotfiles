@@ -1,8 +1,5 @@
-# Set CLICOLOR if you want Ansi Colors in iTerm2 
+# Ansi colors in ls and friends.
 export CLICOLOR=1
-
-# Set colors to match iTerm2 Terminal Colors
-export TERM=xterm-256color
 
 # Prompt
 PROMPT='%F{118}%C ~%f '
@@ -10,20 +7,49 @@ PROMPT='%F{118}%C ~%f '
 # Aliases
 alias 'ttop=top -ocpu -R -F -s 2 -n30'
 alias lh='ls -a | egrep "^\."'
+alias img='chafa'
+alias ls='eza --icons --grid --group-directories-first'
 
-# Export
-export MODULAR_HOME="/Users/nobelkhandaker/.modular"
-export PATH="/Users/nobelkhandaker/.modular/pkg/packages.modular.com_mojo/bin:$PATH"
-export PATH="~/Library/Application Support/Coursier/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
-# Pyenv configurations
+# Android SDK
+export ANDROID_HOME="/opt/homebrew/share/android-commandlinetools"
+export PATH="$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+
 export PYENV_ROOT="$HOME/.pyenv"
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
-export PATH="/opt/homebrew/opt/openjdk@11/bin:$PATH"
-export MODULAR_HOME="/Users/nobelkhandaker/.modular"
-export PATH="/Users/nobelkhandaker/.modular/pkg/packages.modular.com_mojo/bin:$PATH"
 
-# Added by Antigravity
-export PATH="/Users/nobelkhandaker/.antigravity/antigravity/bin:$PATH"
+# Dotnet tools
+export PATH="$PATH:/Users/nobelk/.dotnet/tools"
+
+# Go
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOPATH/bin
+
+
+# Rust
+export RUSTPATH=$HOME/.rustup/toolchains/stable-aarch64-apple-darwin
+export PATH=$PATH:$RUSTPATH/bin
+
+# sentry
+fpath=("/Users/nobelk/.local/share/zsh/site-functions" $fpath)
+
+# Pubcache
+export PATH="$HOME/.pub-cache/bin:$PATH"
+
+# Sublime Text (subl is symlinked into ~/.local/bin, already on PATH)
+export EDITOR='subl -w'
+export VISUAL="$EDITOR"
+export PATH="/opt/homebrew/bin:$PATH"
+export PATH="/opt/homebrew/sbin:$PATH"
+
+
+# tmux shortcuts
+alias ta='tmux attach-session -t'
+alias tl='tmux list-sessions'
+alias td='tmux detach'
+alias ts='tmux new-session -s'
+alias tk='tmux kill-session -t'
+alias tka='tmux kill-server'
+alias t='tmux attach || tmux new-session'
