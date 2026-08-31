@@ -44,7 +44,6 @@ export VISUAL="$EDITOR"
 export PATH="/opt/homebrew/bin:$PATH"
 export PATH="/opt/homebrew/sbin:$PATH"
 
-
 # tmux shortcuts
 alias ta='tmux attach-session -t'
 alias tl='tmux list-sessions'
@@ -53,3 +52,5 @@ alias ts='tmux new-session -s'
 alias tk='tmux kill-session -t'
 alias tka='tmux kill-server'
 alias t='tmux attach || tmux new-session'
+alias gp='git pull'
+alias gs='git status'
