@@ -1,11 +1,11 @@
 ---
 name: feature-spec
-description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), gathers scope/key-decision/validation answers in one grouped AskUserQuestion, writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs and folds validated findings back in. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
+description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), gathers scope/key-decision/validation answers in one grouped AskUserQuestion, writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs, folds validated findings back in, commits the spec files, and pushes the specs/<name> branch to origin. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
 ---
 
 # Feature spec skill
 
-Scaffold the planning docs for the next phase on the roadmap. Output is three files under `specs/<name>/`, written **after** gathering inputs from the user via a single `AskUserQuestion` call, then reviewed by codex (OpenAI Codex CLI) with validated findings folded back into the files.
+Scaffold the planning docs for the next phase on the roadmap. Output is three files under `specs/<name>/`, written **after** gathering inputs from the user via a single `AskUserQuestion` call, then reviewed by codex (OpenAI Codex CLI) with validated findings folded back into the files, then committed and pushed to the remote `specs/<name>` branch.
 
 Two related identifiers, derived from one input:
 - `<branch-name>` — the git branch, **always** namespaced under `specs/` (e.g. `specs/2026-05-05-firefly`).
@@ -15,7 +15,7 @@ Two related identifiers, derived from one input:
 
 Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), and the Step 7 report. Subagents cannot prompt the user, so every gate stays here.
+- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), the Step 7 commit and push, and the Step 8 report. Subagents cannot prompt the user, so every gate stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 5** — launch the `/codex:adversarial-review --background` review of the three spec files, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 answers and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a user decision back through `AskUserQuestion` here — never in a subagent.
@@ -120,7 +120,7 @@ Each task group then states only what is concrete to it - its tests, the package
 
 ## Step 5 — Codex review of the spec files via `/codex:adversarial-review --background`
 
-Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three new untracked spec files are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the worktree root (the Step 2 `cd` already put you there):
+Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three spec files — newly created or, in the overwrite/append case, modified — are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the worktree root (the Step 2 `cd` already put you there):
 
 ```bash
 /codex:adversarial-review --background "<focus>"
@@ -132,7 +132,7 @@ With `<focus>`:
 
 Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
 - **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-spec-review-<name>.md`) so Step 6 is auditable. Do **not** commit this file.
-- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or skip the review and report the files as-is).
+- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer these options, named exactly so the choice is unambiguous: **retry the codex review**, **substitute a self-review pass** (then continue to Step 6 and Step 7), **skip the review and commit/push the unreviewed specs**, or **skip the review and stop without committing or pushing**. Enter Step 7 only when the chosen option explicitly permits it; the Step 8 report names the option taken.
 
 ## Step 6 — Validate the findings and update the specs
 
@@ -148,9 +148,29 @@ Do **not** apply codex's comments blindly — they are hypotheses to adjudicate,
 
 Apply the accepted findings to the spec files, keeping each edit traceable to its finding number. If an accepted finding would change a decision the user made in Step 3 (e.g. widen scope, swap the key decision), do not edit — surface it via AskUserQuestion first. Present the full disposition table to the user.
 
-## Step 7 — Report
+## Step 7 — Commit and push
 
-Print the three file paths and a one-sentence summary of each, plus the codex review outcome: total findings and the accept/reject/defer breakdown with one-line reasons for rejections (or that the review was skipped and why). Do **not** commit — leave the files staged-or-unstaged for the user to review and commit themselves.
+With the disposition table applied, commit the spec files and push the branch. This runs without a confirmation prompt — the worktree guarantees `HEAD` is the `specs/<name>` branch, never the default branch. Every command below runs from the worktree root. The failure conditions in this step are **hard stops**: report the error and end the run; do not offer a proceed option, never switch remotes, never force-push.
+
+1. **Preflight, before staging or committing.** Assert all of the following, and stop if any fails:
+   - `git rev-parse --abbrev-ref HEAD` equals `<branch-name>` exactly (which implies it starts with `specs/` and is not the default branch resolved in Step 2).
+   - `git remote get-url origin` succeeds — there is an `origin` to push to.
+   - `git diff --cached --name-only` is empty — nothing is pre-staged from a reused worktree.
+2. **Stage exactly the three files by explicit path**, never by directory:
+   ```bash
+   git add -- specs/<name>/requirements.md specs/<name>/plan.md specs/<name>/validation.md
+   ```
+   Then confirm `git diff --cached --name-only` lists exactly those three paths and skim `git diff --cached`. Never stage the codex scratch file or anything else `git status --short` shows; leave unrelated changes untouched and mention them in the Step 8 report.
+3. **Commit** following the repo's own convention, in this precedence: a subject style established by `CLAUDE.md`/repo docs, then the style of recent `git log` subjects (e.g. a ticket-key prefix such as `APP-731: <summary>` — use the key when `<name>` or the roadmap carries one, never invent one), and only when no convention is detectable the default `docs(specs): add <name> feature spec`. Include any required trailers defined by the environment/repo. The body lists the three files and summarizes the codex review outcome in one line.
+4. **Push and set the upstream:**
+   ```bash
+   git push -u origin <branch-name>
+   ```
+   Any non-zero exit (missing/invalid remote, network, auth, protected branch, non-fast-forward) is a stop: report the exact error, leave the commit in place, do not retry with `--force` or another remote. Do not open a PR unless the user asks; pushing the branch is where this skill stops.
+
+## Step 8 — Report
+
+Print the three file paths and a one-sentence summary of each, plus the codex review outcome: total findings and the accept/reject/defer breakdown with one-line reasons for rejections (or that the review was skipped, which Step 5 option was chosen, and why). Then state the commit hash and subject, the branch pushed, and the worktree path the specs live in — or, if Step 7 stopped, which preflight or push check failed and its exact error.
 
 ## Notes
 
@@ -158,4 +178,5 @@ Print the three file paths and a one-sentence summary of each, plus the codex re
 - The branch is always `specs/<name>` and the docs directory is always `specs/<name>/` — same `<name>`, derived once in Step 0/2; keep them in sync. If `<name>` itself contains further slashes (e.g. `specs/feat/auth`), the spec directory nests accordingly (`specs/feat/auth/`).
 - If the project already has a `specs/<name>/` directory, use `AskUserQuestion` to ask whether to overwrite, append, or pick a different name. Run this check **before Step 4 writes the files**; if the user picks a different name, loop back through the Step 0 name normalization and branch-existence check so the branch and `specs/<name>/` names stay in sync.
 - If the user runs this skill on a branch that isn't the default branch, warn them — they may have meant to run it after merging their current work.
-- The skill never removes worktrees. When a feature is merged and done, the user cleans up with `git worktree remove <wt-path>` (then `git worktree prune`); mention this in the Step 7 report when a worktree was created.
+- The Step 7 commit contains only the three spec files. The codex scratch file lives outside the repo and is never committed.
+- The skill never removes worktrees. When a feature is merged and done, the user cleans up with `git worktree remove <wt-path>` (then `git worktree prune`); mention this in the Step 8 report when a worktree was created.

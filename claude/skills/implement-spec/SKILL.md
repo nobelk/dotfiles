@@ -33,7 +33,7 @@ This is the bar for every step below — not decoration:
 Run expensive, self-contained work in a **`general-purpose` subagent** (via the `Agent`/`Task` tool) and keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate):
-  - Every `AskUserQuestion` gate (subagents cannot prompt the user): missing/invalid spec files (Step 0), a spec-vs-requirements contradiction (Step 2), an ambiguous implementation fork (Step 3), a failing gate unrelated to the change (Step 5), and the pre-push confirmation (Step 7).
+  - Every `AskUserQuestion` gate (subagents cannot prompt the user): missing/invalid spec files (Step 0), a spec-vs-requirements contradiction (Step 2), an ambiguous implementation fork (Step 3), and a failing gate unrelated to the change (Step 5).
   - **Invoking the `/simplify` and `/codex-review` skills** (Step 4 and Step 5) — the Skill tool runs in this conversation; it cannot be launched from inside a subagent.
   - The implementation edits themselves stay in the main loop when they are tightly coupled across files (the common case for a coherent feature); delegate only a self-contained, well-bounded task group - and give that subagent's prompt the principal-engineer posture standards, the TDD requirement, and the group's scope limits, with the result shape including the changed files and red-then-green test evidence.
   - The final commit/push (Step 7) and the Step 8 report.
@@ -106,14 +106,14 @@ Once the implementation is functionally complete and the touched-package tests p
 ## Step 5 — Independent review (`/codex-review`) and verify
 
 1. Invoke the **`/codex-review`** skill (via the Skill tool, in the main loop). It auto-detects the scope (your uncommitted changes), runs codex's independent review, and — by its own contract — **validates every finding against the actual code and the project rules**, marking each accept/reject/defer, fixing only the accepted ones, and running the repo's gate at the end. Do not blindly apply codex output; that adjudication is exactly what `/codex-review` is built to do, so let it do it and review its disposition table.
-   - If `/codex-review` reports that codex is unavailable or errored, follow its own stop-and-ask path; do not silently skip the review.
+   - If `/codex-review` reports that codex is unavailable or errored, follow its own stop-and-ask path; do not silently skip the review. Step 7 is entered only if `/codex-review` completed, or the user explicitly chose an option that says the result may be committed and pushed unreviewed — record that choice in the Step 8 report. Any other outcome (review skipped without that authorization, aborted) ends the run at the report without committing.
 2. After `/codex-review` returns, run the project's **format, lint, build, and full test** gates yourself to confirm the combined result (implementation + simplify + review fixes) is green — prefer the repo's single full-CI target, in priority order:
    ```bash
    task ci          # if Taskfile.yml defines it (this repo: lint + test + test:sim + build + arch-lint)
    make ci / make test
    npm test / pnpm test / yarn test
    ```
-   Delegate the gate run to a subagent that returns pass/fail plus only the failing output. If a gate fails because of the change, fix forward (looping back through the relevant step) — never hand off or commit red. If it fails for a reason unrelated to the change (pre-existing red), stop and ask whether to proceed, fix it, or abort.
+   Delegate the gate run to a subagent that returns pass/fail plus only the failing output. If a gate fails because of the change, fix forward (looping back through the relevant step) — never hand off or commit red. If it fails for a reason unrelated to the change (pre-existing red), stop and ask with options named exactly: **fix the pre-existing failure here**, **commit and push despite the named pre-existing failure**, or **abort without committing**. Only the second option authorizes entering Step 7 with a red gate; record it as an exception in the Step 8 **Checks** line.
 
 ## Step 6 — Confirm the validation criteria are met
 
@@ -121,15 +121,19 @@ Re-read `<spec-dir>/validation.md` and walk its checklist against what now exist
 
 ## Step 7 — Commit and push
 
-With everything green and validation satisfied:
+Enter this step only when every required gate is green (or the user chose the explicit Step 5 exception) and validation is satisfied. Every command runs from the worktree root. This step runs without a confirmation prompt — the worktree guarantees `HEAD` is `<branch>`, never the default branch, so a new branch with no upstream is the expected case, not an ambiguity. Its failure conditions are **hard stops**: report the error and end the run; do not offer a proceed option, never switch remotes, never force-push.
 
-1. Review the staged diff (`git status` + `git diff`) so the commit contains exactly the intended change and nothing stray.
-2. Commit following the **repo's own commit conventions** — match the recent `git log` message style (this repo prefixes subjects with the ticket key, e.g. `APP-731: <summary>`) and include any required trailers defined by the environment/repo. Group into one or more logical commits if the plan landed as distinct slices.
-3. Confirm the push target with `AskUserQuestion` if there is any ambiguity (new branch with no upstream, a protected branch, a fork remote). Then push:
+1. **Preflight, before staging or committing.** Assert all of the following, and stop if any fails:
+   - `git rev-parse --abbrev-ref HEAD` equals `<branch>` exactly (which implies it starts with `specs/` and is not the default branch resolved in Step 0).
+   - `git remote get-url origin` succeeds — there is an `origin` to push to.
+   - `git diff --cached --name-only` is empty — nothing is pre-staged from a reused worktree.
+2. **Stage by explicit path.** Build the list of files this run created or modified (from the Step 3 task-group edits, `/simplify`, and `/codex-review` fixes), then `git add -- <paths>` — never `git add .` or `-A`. Confirm `git diff --cached --name-status` shows exactly that list and review `git diff --cached`; if any foreign path is present, unstage it and stop. Untracked files this run created must be in the list; untracked files it did not create must not be.
+3. **Commit** following the repo's own convention, in this precedence: a subject style established by `CLAUDE.md`/repo docs, then the style of recent `git log` subjects (e.g. a ticket-key prefix such as `APP-731: <summary>` — use the key from `<name>` or the spec when present, never invent one; otherwise `<summary>` alone in the recent style). Include any required trailers defined by the environment/repo. Group into one or more logical commits if the plan landed as distinct slices, repeating the stage-and-verify of item 2 per commit.
+4. **Push and set the upstream:**
    ```bash
-   git push -u origin <current-branch>   # first push sets upstream
+   git push -u origin <branch>   # first push sets upstream
    ```
-   Do not push to the default branch. Do not open a PR unless the user asks — pushing the branch is where this skill stops.
+   Any non-zero exit (missing/invalid remote, network, auth, protected branch, non-fast-forward) is a stop: report the exact error, leave the commit(s) in place, do not retry with `--force` or another remote. Do not open a PR unless the user asks — pushing the branch is where this skill stops.
 
 ## Step 8 — Report
 
@@ -139,8 +143,8 @@ State, per the repo's handoff checklist if it has one:
 - **Spec coverage** — each `requirements.md` requirement and `validation.md` criterion, marked satisfied / deferred (with reason).
 - **Simplify** — what `/simplify` cleaned up.
 - **Review** — `/codex-review`'s finding count and accept/reject/defer breakdown, with one-line reasons for rejections.
-- **Checks** — which gates ran (format/lint/build/test) and any skipped, with why.
-- **Commit & push** — the commit(s), the branch pushed, and the worktree path the work lives in.
+- **Checks** — which gates ran (format/lint/build/test) and any skipped or red-by-exception, with why and which Step 5 option the user chose.
+- **Commit & push** — the commit(s), the branch pushed, and the worktree path the work lives in — or, if Step 7 stopped, which preflight or push check failed and its exact error.
 - **Remaining risk** — deferred items and anything review/validation could not cover, especially around safety, ordering, concurrency, performance, or architecture boundaries.
 
 ## Stop-and-ask conditions (use AskUserQuestion; never silently proceed)
@@ -149,6 +153,11 @@ State, per the repo's handoff checklist if it has one:
 - The resolved worktree carries unrelated uncommitted changes (Step 0).
 - `plan.md`/`requirements.md` contradict each other or a documented repo constraint (Step 2).
 - A real implementation fork with trade-offs (Step 3).
-- `/codex-review` reports codex is unavailable (Step 5, defer to that skill's own gate).
+- `/codex-review` reports codex is unavailable or errored (Step 5, defer to that skill's own gate).
 - A verification gate fails for a pre-existing reason unrelated to the change (Step 5).
-- Any ambiguity about the push target (Step 7).
+
+## Hard-stop conditions (report and end the run; no AskUserQuestion, no proceed option)
+
+- Step 7 preflight fails: `HEAD` is not `<branch>`, `origin` is missing, or the index is pre-populated.
+- Step 7 staging shows a foreign path in the index.
+- `git push` exits non-zero for any reason (missing remote, network, auth, protected branch, non-fast-forward).
