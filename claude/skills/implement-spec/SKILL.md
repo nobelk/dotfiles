@@ -1,163 +1,62 @@
 ---
 name: implement-spec
-description: Implement a feature spec end to end as a principal software engineer — resolves the specs/<name> branch to its git worktree (reusing an existing worktree, else creating branch and worktree as needed) and works there, reads the spec trio plus the repo's conventions, implements plan.md test-first to satisfy requirements.md, validates against validation.md, runs the /simplify and /codex-review skills on the result, verifies with the project's gates, then commits and pushes the branch. Takes a spec directory containing plan.md, requirements.md, and validation.md as the argument (inferred from a specs/<name> branch if omitted). Invoke manually when a spec under specs/<name>/ is ready to build.
+description: "Implement a specification in code. Rebases the PR branch onto the default branch via the rebase-branch skill before any implementation starts."
+disable-model-invocation: true
 ---
 
-# Implement-spec skill
+You have been provided a spec. This spec should have tickets associated with it, describing how to implement the spec.
 
-Take a finished planning spec and **build it to done**, acting as a principal software engineer: deliberate, test-first, minimal, and faithful to the repo's own rules. The input is a spec directory `<spec-dir>` holding the three feature-spec artifacts:
+The goal is a PR which implements the entire spec on a single branch.
 
-- `<spec-dir>/requirements.md` — what must be true (the contract).
-- `<spec-dir>/plan.md` — the ordered task groups to implement.
-- `<spec-dir>/validation.md` — how we prove it's done.
+The tickets are not a list of steps. They are a **task graph** with blocking relationships between them. This means there is always a **frontier** of tickets which are ready to be grabbed.
 
-Output is working, reviewed, verified code committed and pushed to the remote branch. The skill composes two existing skills rather than reinventing them: `/simplify` for the cleanup pass and `/codex-review` for the independent second-model review.
+Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, research notes, and previous commits. Don't duplicate information already available via pointers.
 
-If the repo has a `CLAUDE.md`, read it first and treat it as authoritative — its conventions, layering rules, and testing expectations win over anything in this skill or any reviewer suggestion that contradicts it.
+**Implementer subagents** should be run in the background where possible for **maximum concurrency**.
 
-## Principal-engineer posture
+## Steps
 
-This is the bar for every step below — not decoration:
+1. Read the spec and tickets. Read enough to understand the task graph.
 
-- **Faithful to the spec, skeptical of it.** Implement what `requirements.md` actually asks. If the plan and the requirements disagree, or either contradicts the repo's documented constraints, stop and surface it — do not paper over it in code.
-- **Test-first (TDD) whenever possible.** Write the failing test that fails for the right reason before the implementation - by default, not only where the project mandates it. Skip TDD only for changes with no testable behavior (docs; generated output whose generator inputs are what get tested), and name each skipped case and its reason in the Step 8 report. Behavior changes ship with tests in the same change, and tests meet the same clean-code bar as production code.
-- **Clean code.** Small, single-purpose functions at one level of abstraction; intention-revealing names; no duplication *introduced by the change* - extract logic you would otherwise copy (deliberate test duplication that keeps a case readable is fine); comments only for the non-obvious *why*.
-- **Clean architecture.** Preserve the repo's established dependency structure; where it defines layering rules, keep dependencies pointing inward, define interfaces at the consumer boundary, and keep domain logic free of transport/DB/framework concerns; new code lands in the package that owns the concern.
-- **Standard design patterns.** Prefer well-known patterns (Ports & Adapters, Strategy, Repository, Functional Options, …) over bespoke abstractions - but only where an abstraction removes real duplication or isolates a dependency. Name the pattern in the report/PR so reviewers recognize it; never contort code identifiers or comments to carry the pattern name.
-- **Idiomatic style.** Precedence: documented repo rules, then the surrounding code's established idiom, then the language community's conventions (Effective Go, PEP 8, …) - in production code and tests alike, without cleaning up unrelated legacy code.
-- **Minimal and local.** Smallest change that satisfies the requirement; extend the package that owns the concern; no speculative abstraction, no scope creep beyond `plan.md`. If meeting a documented repo constraint would force a refactor wider than the plan's scope, stop and ask - neither creep the scope silently nor ship structure you know is wrong.
-- **Safety and correctness over convenience** when the domain is safety-critical — follow the repo's failure-direction and error-handling rules exactly.
+2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration.
 
-## Subagent delegation
+3. Create a branch, and a draft PR. The PR should be marked as 'closing' the spec issue and tickets.
 
-Run expensive, self-contained work in a **`general-purpose` subagent** (via the `Agent`/`Task` tool) and keep orchestration in the main loop. The split is fixed:
+4. **Rebase the branch onto the default branch before any implementation work starts.**
 
-- **Main loop owns** (never delegate):
-  - Every `AskUserQuestion` gate (subagents cannot prompt the user): missing/invalid spec files (Step 0), a spec-vs-requirements contradiction (Step 2), an ambiguous implementation fork (Step 3), and a failing gate unrelated to the change (Step 5).
-  - **Invoking the `/simplify` and `/codex-review` skills** (Step 4 and Step 5) — the Skill tool runs in this conversation; it cannot be launched from inside a subagent.
-  - The implementation edits themselves stay in the main loop when they are tightly coupled across files (the common case for a coherent feature); delegate only a self-contained, well-bounded task group - and give that subagent's prompt the principal-engineer posture standards, the TDD requirement, and the group's scope limits, with the result shape including the changed files and red-then-green test evidence.
-  - The final commit/push (Step 7) and the Step 8 report.
-- **Delegate to a `general-purpose` subagent** (each returns a compact result):
-  - **Step 1** — read the spec trio, `CLAUDE.md`, the nearest existing package code/tests, and any ADRs the plan references; return a structured brief (relevant conventions, the files each task group will touch, the test patterns to mirror). Keeps the bulky reading out of the main context.
-  - **Step 5 verification** — run the project's gate (`task ci`, etc.) and return pass/fail plus only the failing output.
+   Resolve the default ref and refresh it:
 
-Give each subagent a self-contained prompt: the exact spec paths, the commands to run, and the precise result shape to return.
-
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Concretely: Step 1's reads (spec trio, `CLAUDE.md`, per-package code/tests, ADRs) are independent — fan them out as parallel reader subagents in one message. **Implementation itself stays serial**: Step 3 works through `plan.md` in order, running each group's tests before starting the next, because the ordered groups typically build on one another and can race through shared artifacts (lockfiles, codegen, migrations, golden files, public API surfaces) even when their source files look disjoint — do not parallelize task-group implementation. The `/simplify` and `/codex-review` invocations and the final verify are likewise sequential — each consumes the prior step's result.
-
-## Step 0 — Resolve and validate the spec directory
-
-The skill's argument is `<spec-dir>` (e.g. `specs/APP-731`).
-
-- If no argument is given, infer it from the current branch: a branch `specs/<name>` maps to spec dir `specs/<name>`. If you cannot infer a single unambiguous directory, stop and ask which spec to implement — do not guess.
-- Derive the feature branch from the spec dir: `<branch>` is `specs/<name>` for spec dir `specs/<name>`.
-- **Worktree discovery** — run `git worktree list --porcelain` and look for a `branch refs/heads/<branch>` entry, then branch on what you find:
-  - A worktree already has `<branch>` checked out → `cd` to that worktree's root and run **every** subsequent step from there — the reads, the implementation edits, the `/simplify` and `/codex-review` invocations, the gates, and the commit/push. (The Skill tool and the gates inherit the session's working directory, so this `cd` is load-bearing, not cosmetic.)
-  - `<branch>` exists locally but no worktree has it → attach it: `git worktree add <wt-path> <branch>`, then `cd <wt-path>`.
-  - `<branch>` does not exist → resolve the default branch:
-    ```bash
-    git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
-      || (git show-ref --verify --quiet refs/heads/main && echo main) \
-      || (git show-ref --verify --quiet refs/heads/master && echo master)
-    ```
-    and create the branch inside a fresh worktree: `git worktree add <wt-path> -b <branch> <base>`, then `cd <wt-path>`.
-
-  `<wt-path>` follows the same convention as `/feature-spec`: `<repo-parent>/<repo-dirname>-worktrees/<slug>`, where `<slug>` is `<branch>` with `/` replaced by `-`; never nest a worktree inside the repo's own working tree. Working in the branch's dedicated worktree also guarantees `HEAD` is never the default branch — this skill ends by pushing, and pushing straight to the default branch is almost never intended.
-- Confirm `<spec-dir>` exists **inside the worktree** and contains all three of `requirements.md`, `plan.md`, `validation.md`. If any is missing, stop and tell the user which — an incomplete spec is not implementable. Offer to run `/feature-spec` first.
-- Run `git status --short` **in the worktree**. If it carries unrelated uncommitted changes (possible when reusing an existing worktree), stop and ask how to proceed (commit/stash/abort) — don't fold someone else's work into this change.
-
-## Step 1 — Build the implementation brief (subagent)
-
-Delegate a read-only pass that returns everything needed to implement without re-reading mid-flight:
-
-- Read `<spec-dir>/requirements.md`, `<spec-dir>/plan.md`, `<spec-dir>/validation.md` in full.
-- Read `CLAUDE.md` and any ADRs / sibling specs the plan cites.
-- For each task group in `plan.md`, identify the package(s) and files it will touch and the nearest existing code and test patterns to mirror.
-
-The subagent returns: the ordered task-group list, the per-group target files, the conventions that bind (layering rules, TDD requirement, logging/observability gates, safety rules), and the validation criteria from `validation.md` restated as a checklist. The main loop holds this brief as the plan of record.
-
-## Step 2 — Reconcile spec, plan, and repo rules before writing code
-
-With the brief in hand, sanity-check it as a principal engineer would:
-
-- Does `plan.md` actually cover every requirement in `requirements.md`? Note gaps.
-- Does any task group conflict with a documented constraint (layering, dependency policy, safety direction)? 
-- Are the `validation.md` criteria sufficient to prove the requirements, and are they testable as written?
-
-If you find a genuine contradiction or a requirement the plan does not cover, **stop and surface it via `AskUserQuestion`** before writing code — offer the options you see (e.g. follow the plan, follow the requirement, adjust scope). Implementing through a known contradiction is the one thing a principal engineer does not do silently.
-
-## Step 3 — Implement the plan, task group by task group
-
-Work through `plan.md` in order (it is ordered so each group is independently coherent). For each group:
-
-1. **Test first (TDD)** whenever the group changes behavior a test can express (per the posture): write the failing test(s) that fail for the right reason, asserting against the `requirements.md`/`validation.md` contract. Verify they fail before implementing - and that the failure is the new test, not a pre-existing red in the package. Follow the repo's test idioms (e.g. table-driven cases named for the boundary they exercise).
-2. **Implement** the smallest change that makes the tests pass and satisfies the requirement. Stay inside the package that owns the concern; obey the layering/import rules from the brief.
-3. **Refactor** locally once green, applying the posture's clean-code, pattern, and idiom standards to the changed code. Add godoc/contract docs the repo requires on new exported identifiers.
-4. Run the touched package's tests (e.g. `go test ./that/pkg -race -count=1`, or the repo's equivalent) before moving on, so you never stack a second group on a red first one.
-
-When a single implementation choice is genuinely ambiguous and the alternatives trade off (an API shape, sync vs async, where a seam goes), stop and ask via `AskUserQuestion` rather than guessing — but only for real forks, not routine decisions a principal engineer just makes.
-
-Keep edits minimal and traceable to a task group. Do not implement beyond `plan.md`'s scope; note any out-of-scope idea for later instead of building it.
-
-## Step 4 — Simplify the changed code (`/simplify`)
-
-Once the implementation is functionally complete and the touched-package tests pass, invoke the **`/simplify`** skill (via the Skill tool, in the main loop) to clean up the new and modified code for reuse, simplification, efficiency, and altitude. `/simplify` is a quality pass only — it does not hunt for bugs (that's the next step) — so it applies its cleanups directly to the working tree. Let it finish before reviewing.
-
-## Step 5 — Independent review (`/codex-review`) and verify
-
-1. Invoke the **`/codex-review`** skill (via the Skill tool, in the main loop). It auto-detects the scope (your uncommitted changes), runs codex's independent review, and — by its own contract — **validates every finding against the actual code and the project rules**, marking each accept/reject/defer, fixing only the accepted ones, and running the repo's gate at the end. Do not blindly apply codex output; that adjudication is exactly what `/codex-review` is built to do, so let it do it and review its disposition table.
-   - If `/codex-review` reports that codex is unavailable or errored, follow its own stop-and-ask path; do not silently skip the review. Step 7 is entered only if `/codex-review` completed, or the user explicitly chose an option that says the result may be committed and pushed unreviewed — record that choice in the Step 8 report. Any other outcome (review skipped without that authorization, aborted) ends the run at the report without committing.
-2. After `/codex-review` returns, run the project's **format, lint, build, and full test** gates yourself to confirm the combined result (implementation + simplify + review fixes) is green — prefer the repo's single full-CI target, in priority order:
    ```bash
-   task ci          # if Taskfile.yml defines it (this repo: lint + test + test:sim + build + arch-lint)
-   make ci / make test
-   npm test / pnpm test / yarn test
+   git symbolic-ref --short refs/remotes/origin/HEAD   # -> e.g. "origin/main", already remote-qualified
+   git fetch origin '+refs/heads/<default-branch-name>:refs/remotes/origin/<default-branch-name>'
+   git rev-parse --verify refs/remotes/origin/<default-branch-name>   # must succeed before the ref is used
    ```
-   Delegate the gate run to a subagent that returns pass/fail plus only the failing output. If a gate fails because of the change, fix forward (looping back through the relevant step) — never hand off or commit red. If it fails for a reason unrelated to the change (pre-existing red), stop and ask with options named exactly: **fix the pre-existing failure here**, **commit and push despite the named pre-existing failure**, or **abort without committing**. Only the second option authorizes entering Step 7 with a red gate; record it as an exception in the Step 8 **Checks** line.
 
-## Step 6 — Confirm the validation criteria are met
+   Pass the resolved string **verbatim** — it already carries the remote prefix, so never prepend `origin/` to it again. Fetch with the **explicit refspec** shown: a single-branch clone or a narrowed `remote.origin.fetch` can make a plain `git fetch origin <default-branch-name>` land in `FETCH_HEAD` only, leaving `origin/<default-branch-name>` stale or absent while the fetch still reports success.
 
-Re-read `<spec-dir>/validation.md` and walk its checklist against what now exists: each named test present and passing, each metric/behavior demonstrable, the "done when" signal actually green. If any criterion is unmet, the spec is not done — return to Step 3 for the gap. Only proceed to commit when every validation criterion is satisfied (or the user has explicitly accepted a documented deferral).
+   If `origin/HEAD` is unset, ask the remote directly with `git ls-remote --symref origin HEAD` and parse its `ref: refs/heads/<default-branch-name>	HEAD` record; then fetch and verify as above, use `origin/<default-branch-name>`, and — **only once that fetch has succeeded** — `git remote set-head origin --auto`, so the next run resolves it from the first command. (That command writes a symref to the remote-tracking ref, so it fails if the ref does not exist yet.) Do **not** fall back to a bare local `main`/`master` of unverified currency: step 3 has already created a draft PR, so a usable remote is a precondition of this whole skill — if the remote is unreachable, the default branch cannot be resolved, or the fetch/verify pair fails, stop and report rather than rebasing onto a stale local tip. Then, from the PR branch:
 
-## Step 7 — Commit and push
-
-Enter this step only when every required gate is green (or the user chose the explicit Step 5 exception) and validation is satisfied. Every command runs from the worktree root. This step runs without a confirmation prompt — the worktree guarantees `HEAD` is `<branch>`, never the default branch, so a new branch with no upstream is the expected case, not an ambiguity. Its failure conditions are **hard stops**: report the error and end the run; do not offer a proceed option, never switch remotes, never force-push.
-
-1. **Preflight, before staging or committing.** Assert all of the following, and stop if any fails:
-   - `git rev-parse --abbrev-ref HEAD` equals `<branch>` exactly (which implies it starts with `specs/` and is not the default branch resolved in Step 0).
-   - `git remote get-url origin` succeeds — there is an `origin` to push to.
-   - `git diff --cached --name-only` is empty — nothing is pre-staged from a reused worktree.
-2. **Stage by explicit path.** Build the list of files this run created or modified (from the Step 3 task-group edits, `/simplify`, and `/codex-review` fixes), then `git add -- <paths>` — never `git add .` or `-A`. Confirm `git diff --cached --name-status` shows exactly that list and review `git diff --cached`; if any foreign path is present, unstage it and stop. Untracked files this run created must be in the list; untracked files it did not create must not be.
-3. **Commit** following the repo's own convention, in this precedence: a subject style established by `CLAUDE.md`/repo docs, then the style of recent `git log` subjects (e.g. a ticket-key prefix such as `APP-731: <summary>` — use the key from `<name>` or the spec when present, never invent one; otherwise `<summary>` alone in the recent style). Include any required trailers defined by the environment/repo. Group into one or more logical commits if the plan landed as distinct slices, repeating the stage-and-verify of item 2 per commit.
-4. **Push and set the upstream:**
-   ```bash
-   git push -u origin <branch>   # first push sets upstream
    ```
-   Any non-zero exit (missing/invalid remote, network, auth, protected branch, non-fast-forward) is a stop: report the exact error, leave the commit(s) in place, do not retry with `--force` or another remote. Do not open a PR unless the user asks — pushing the branch is where this skill stops.
+   /rebase-branch <resolved-default-ref>
+   ```
 
-## Step 8 — Report
+   Why here: implementer subagents branch their worktrees off this branch, so any drift from the default branch is inherited by every one of them and only surfaces as conflicts at merge time in step 6. Rebasing once, up front, is the cheap version of that work.
 
-State, per the repo's handoff checklist if it has one:
+   - **Two early exits count as "already current"**, and neither is a failure: `rebase-branch` stops at its preflight when the branch tip *equals* the default ref's tip (the usual outcome for the branch step 3 just created off a freshly fetched default), and stops with "nothing to integrate" when the default ref is already an ancestor of `HEAD`. Record which one occurred and continue. Every other preflight stop is a real stop — never infer a no-op from the branch merely being new.
+   - `rebase-branch` owns conflict resolution and its own stop-and-ask gates. Do not pre-empt or auto-answer them; if it aborts, stop here and report rather than launching implementers onto a half-integrated tree.
+   - **Its codex review and its format/lint/build/test gates run over the whole repository and are not trivial** — let the full workflow run and honour its verdicts. It is still not the step 8 `/code-review`, which runs over the finished implementation.
+   - **Check for an orphaned stash before moving on.** If the tree was dirty, `rebase-branch`'s preflight may have stashed it, and an early preflight exit never reaches the pop. Identify it by **object id**, not name or position — `git stash list` descriptions repeat across sessions and its `stash@{N}` selectors renumber whenever an entry is pushed. Record `git rev-parse --verify --quiet refs/stash` before invoking the skill and re-read it after: unchanged means nothing was stashed here, so restore nothing; changed means the new entry is `stash@{0}` — confirm its id matches. A surviving entry is **not** proof nothing was restored: a `git stash pop` that hit conflicts applies its changes and leaves the entry in place, so popping again would apply them twice. What `rebase-branch` reported (a pop, or a pop conflict) is the primary signal; corroborate with `git status --porcelain`, treating **any** unmerged state as a conflicted restore (`UU`, `AA`, `DD`, `AU`, `UD`, `UA`, `DU`), and with `git stash show --include-untracked -p stash@{0}` — the reference stashes via `stash push -u`, so plain `stash show -p` omits untracked files and makes a partial restore look complete. Only pop — `git stash pop stash@{0}`, naming the selector explicitly — when nothing was applied; otherwise finish resolving, leave the restored work in the working tree as uncommitted **and unstaged** changes (`git restore --staged .` unstages without touching file contents — staged is not the same as uncommitted), and `git stash drop stash@{0}`. If you cannot confirm the entry is fully represented in the tree, keep the stash and say so: an orphaned stash is recoverable, a dropped one is not. Check this on every exit path, including an abort, since `rebase-branch` only reaches its own stash restore in its Step 2.
+   - **Synchronize the remote branch yourself — `rebase-branch` never pushes.** Step 3 already pushed this branch to open the draft PR, so: after an early-exit no-op there is nothing to push; after a rebase that only fast-forwards, `git push <remote> <branch>`; only when the replay actually rewrote published commits, `git push --force-with-lease <remote> <branch>`. Name the PR's remote and branch explicitly, and stop on any push failure — a draft PR pointing at an abandoned tip is worse than no push.
+   - **Re-read the spec and tickets (step 1) after any rebase that changed the tree**, and **re-validate the step 2 exploration notes against the rebased tree**, updating them in place. Those notes live outside the repository, so the rebase cannot fix stale paths, APIs, or recommendations in them — every implementer subagent reads them as fact.
 
-- **What changed** — the task groups implemented, in the user's terms, and the files touched.
-- **Spec coverage** — each `requirements.md` requirement and `validation.md` criterion, marked satisfied / deferred (with reason).
-- **Simplify** — what `/simplify` cleaned up.
-- **Review** — `/codex-review`'s finding count and accept/reject/defer breakdown, with one-line reasons for rejections.
-- **Checks** — which gates ran (format/lint/build/test) and any skipped or red-by-exception, with why and which Step 5 option the user chose.
-- **Commit & push** — the commit(s), the branch pushed, and the worktree path the work lives in — or, if Step 7 stopped, which preflight or push check failed and its exact error.
-- **Remaining risk** — deferred items and anything review/validation could not cover, especially around safety, ordering, concurrency, performance, or architecture boundaries.
+5. Use **implementer subagents** to implement each ticket. Each implementer subagent should work in its own worktree, on its own branch.
 
-## Stop-and-ask conditions (use AskUserQuestion; never silently proceed)
+6. Once an **implementer subagent** completes, merge its work to the PR branch with a **merger subagent**.
 
-- `<spec-dir>` is missing or lacks any of the three spec files (Step 0).
-- The resolved worktree carries unrelated uncommitted changes (Step 0).
-- `plan.md`/`requirements.md` contradict each other or a documented repo constraint (Step 2).
-- A real implementation fork with trade-offs (Step 3).
-- `/codex-review` reports codex is unavailable or errored (Step 5, defer to that skill's own gate).
-- A verification gate fails for a pre-existing reason unrelated to the change (Step 5).
+7. If this changes the **frontier** of available tickets, kick off more **implementer subagents** to work on the new tickets. This allows for maximum concurrency.
 
-## Hard-stop conditions (report and end the run; no AskUserQuestion, no proceed option)
+8. Once all tickets are complete, run /code-review on the PR branch. Fix all issues raised by the code review in a single **implementer subagent**, and merge that subagent's work back to the PR branch the same way step 6 does — the fixes are not done until they are on the PR branch.
 
-- Step 7 preflight fails: `HEAD` is not `<branch>`, `origin` is missing, or the index is pre-populated.
-- Step 7 staging shows a foreign path in the index.
-- `git push` exits non-zero for any reason (missing remote, network, auth, protected branch, non-fast-forward).
+9. **Publish, then** mark the PR as ready for review. Step 4 was the only push so far, and it happened before any implementation: push the PR branch now, require the push to exit zero, and then confirm the **remote's** tip matches local `HEAD` by querying the remote rather than a local tracking ref — `git ls-remote --exit-code <remote> refs/heads/<branch>` and compare the SHA it prints with `git rev-parse HEAD`. `git rev-parse <remote>/<branch>` reads the local remote-tracking ref, which a narrowed fetch mapping can leave stale or absent even after a successful push. A non-zero status or a mismatch is a stop. Marking a PR ready while its commits are local makes reviewers read an empty or stale diff.
+
+10. Clean up all **implementer subagent** worktrees.
