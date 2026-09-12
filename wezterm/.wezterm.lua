@@ -14,7 +14,7 @@ config.initial_rows = 28
 config.font_size = 14
 
 -- color scheme
-config.color_scheme = 'GruvboxDark'
+config.color_scheme = 'Catppuccin Macchiato'
 
 -- performance
 config.front_end = 'WebGpu'
