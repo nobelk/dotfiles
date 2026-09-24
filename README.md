@@ -15,6 +15,8 @@ This dotfiles repository provides a consistent development environment setup acr
 
 ```
 dotfiles/
+├── automation/             # Scheduled jobs
+│   └── claude-pr-review/   # systemd timer running /pr-review over a repo list
 ├── claude/                 # Claude CLI configuration
 │   ├── .claude/
 │   │   └── settings.local.json

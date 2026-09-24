@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Runs /pr-review --yes on every repo in ~/.config/claude-pr-review/repos.txt.
+# Invoked by claude-pr-review.timer; reports land in ~/pr-reviews/<date>/.
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:$HOME/.local/go/bin:$HOME/.local/share/mise/shims:$HOME/develop/flutter/bin:/usr/local/bin:/usr/bin:/bin"
+
+REPOS="$HOME/.config/claude-pr-review/repos.txt"
+OUT="$HOME/pr-reviews/$(date +%F)"
+WORK="$HOME/.cache/claude-pr-review/work"
+STAMP=$(date +%H%M)
+mkdir -p "$OUT" "$WORK"
+
+while read -r repo; do
+  [[ -z "$repo" || "$repo" == \#* ]] && continue
+  name=${repo#*/}
+  # Reuse a local clone when one exists; pr-review only fetches into it, never checks out.
+  dir="$HOME/sources/$name"; [[ -d "$dir/.git" ]] || dir="$WORK"
+  log="$OUT/${STAMP}-${name}.md"
+  echo "[$(date +%T)] $repo" >&2
+  ( cd "$dir" && timeout 90m claude -p "/pr-review $repo --yes" \
+      --permission-mode auto --output-format text ) > "$log" 2>&1
+  rc=$?
+  (( rc != 0 )) && echo "$(date +%T) $repo exit=$rc (see $log)" >> "$OUT/_errors.log"
+done < "$REPOS"
+
+# Keep 30 days of reports.
+find "$HOME/pr-reviews" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +

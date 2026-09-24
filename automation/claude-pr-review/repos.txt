@@ -1,0 +1,7 @@
+# One GitHub repo per line (owner/repo). Lines starting with # are ignored.
+intramotev/site-manager-v2
+intramotev/controller-app-v2
+intramotev/intramotev-infra-v2
+intramotev/apps-common
+intramotev/site-dispatcher-ui-v2
+intramotev/site-dispatcher-svc-v2

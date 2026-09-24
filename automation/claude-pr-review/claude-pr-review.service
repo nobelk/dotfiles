@@ -1,0 +1,10 @@
+[Unit]
+Description=Claude Code /pr-review sweep over configured repos
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/claude-pr-sweep
+TimeoutStartSec=infinity
+Nice=10
