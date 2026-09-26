@@ -207,18 +207,17 @@ A C PR is **approvable** only when **all** of these hold, using the Step 3 resul
 
 1. Every item in `myFeedbackItems` is **Addressed** or **Resolved**. Replied-not-addressed, Pushback, No response, and Unverifiable items all block.
 2. The unreviewed delta is empty, or its three checks came back clean, and the history was not rewritten.
-3. `ci` is **pass**. **fail** and **pending** block. **none** (no checks reported) is treated like rule 5: **approvable with caveat**, with the reason "no CI checks".
+3. `ci` is **pass**. **fail** and **pending** block. **none** (no checks reported) makes the PR **approvable with caveat**, with the reason "no CI checks"; a PR that fails only this way is approved only if the user names it at the gate.
 4. The PR is still open and not a draft.
-5. No other reviewer has an unresolved, non-outdated thread, and no other reviewer's current `latestOpinion` is CHANGES_REQUESTED. A PR that fails only this rule is **approvable with caveat**, and is approved only if the user names it at the gate.
 
-A **clean-review** PR (a clean B target this run, or an R PR with a ledger `clean` entry) is approvable under rules 3–5, and is listed at the gate under its own heading so the user can leave it out. Every other C PR is **waiting on author**, with its blocking items listed.
+A **clean-review** PR (a clean B target this run, or an R PR with a ledger `clean` entry) is approvable under rules 3–4, and is listed at the gate under its own heading so the user can leave it out. Every other C PR is **waiting on author**, with its blocking items listed.
 
 **Gate 2.** List approvable PRs (head SHA short, plus a reason such as "3/3 items handled (1 resolved without change), delta reviewed clean, CI pass"), then clean-review PRs, then approvable-with-caveat PRs, each under its own heading.
 - **Interactive**: ask once with `AskUserQuestion`, offering **approve all approvable**, **approve none**, or **Other** (free text naming PRs to skip, or caveat PRs to include).
 - **`--yes` and `--dry-run`**: approve nothing; the summary lists them as **Approvable**.
 - If no PR is approvable, say so and skip the gate.
 
-After approval, for each PR still in scope, **run the Step 1 fetch for that PR again and compare the whole record** with the one Steps 3 and 4 used: head SHA, base ref and SHA, state, isDraft, CI, every review's state, the thread set and resolution, body feedback, issue comments, and others' opinions. If anything changed, **skip the PR this run and report what changed**; don't re-verify after the gate. Otherwise, submit the approval through the REST endpoint so it is bound to the verified SHA (`gh pr review --approve` can't target a commit):
+After approval, for each PR still in scope, **run the Step 1 fetch for that PR again and compare the whole record** with the one Steps 3 and 4 used: head SHA, base ref and SHA, state, isDraft, CI, the state of each of my reviews, `myThreads` and their resolution, body feedback, and issue comments. If anything changed, **skip the PR this run and report what changed**; don't re-verify after the gate. Otherwise, submit the approval through the REST endpoint so it is bound to the verified SHA (`gh pr review --approve` can't target a commit):
 
 ```bash
 gh api --hostname github.com repos/<owner>/<repo>/pulls/<n>/reviews --method POST \
