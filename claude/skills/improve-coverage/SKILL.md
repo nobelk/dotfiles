@@ -1,11 +1,11 @@
 ---
 name: improve-coverage
-description: Measure unit-test coverage of the current branch's changed Go packages (diffed against the default branch), draft a CLAUDE.md-compliant plan to raise it, codex-review the plan and fold in validated findings, then implement the tests and verify the lift with the project's format/lint/build/test gates. Invoke manually when you want to harden test coverage on a feature branch before merge.
+description: Measure unit-test coverage of the current branch's changed Go packages (diffed against the default branch), settle the plan's open decisions with the user in a grilling session (the grilling skill), draft a CLAUDE.md-compliant plan to raise it, codex-review the plan and fold in validated findings, then implement the tests and verify the lift with the project's format/lint/build/test gates. Invoke manually when you want to harden test coverage on a feature branch before merge.
 ---
 
 # Improve coverage skill
 
-Raise unit-test coverage on the **packages this branch changed**, the disciplined way: measure first, plan against the project's own rules, get an independent (codex) review of that plan, validate the review, then implement and prove the lift. Output is a coverage report, a written plan, new tests, and a green verification run.
+Raise unit-test coverage on the **packages this branch changed**, the disciplined way: measure first, grill the user on the plan's open decisions, plan against the project's own rules, get an independent (codex) review of that plan, validate the review, then implement and prove the lift. Output is a coverage report, a written plan, new tests, and a green verification run.
 
 This skill follows the repo's TDD and hexagonal-discipline rules — read `CLAUDE.md` before doing anything; it overrides any default behavior here.
 
@@ -13,7 +13,7 @@ This skill follows the repo's TDD and hexagonal-discipline rules — read `CLAUD
 
 Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): the Step 0 scope resolution, **every** stop-and-ask gate — the parenthetical examples (Step 0 branch==base or zero changed files, the red/uncompilable-package gate, the codex-unavailable gate, the larger-than-port production-change gate) are illustrative; the **Stop-and-ask conditions** list at the end is authoritative — plus drafting the plan in Step 3, presenting baseline numbers and dispositions, and the Step 8 final checklist. Subagents cannot prompt the user, so every gate stays here: a delegated subagent that hits one (a red package in Step 1, a too-large production change in Step 6) must return a "needs user decision" status to the main loop rather than guessing.
+- **Main loop owns** (never delegate): the Step 0 scope resolution, **every** stop-and-ask gate — the parenthetical examples (Step 0 branch==base or zero changed files, the red/uncompilable-package gate, the codex-unavailable gate, the larger-than-port production-change gate) are illustrative; the **Stop-and-ask conditions** list at the end is authoritative — plus the Step 2a grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it), drafting the plan in Step 3, presenting baseline numbers and dispositions, and the Step 8 final checklist. Subagents cannot prompt the user, so every gate stays here: a delegated subagent that hits one (a red package in Step 1, a too-large production change in Step 6) must return a "needs user decision" status to the main loop rather than guessing.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose `go test` / coverage output out of the main context):
   - **Step 1** — run the `go test … -coverprofile` + `go tool cover -func` commands over the target packages and return the per-package and total percentages plus the lowest-covered rows. The full profile output stays in the subagent.
   - **Step 4** — launch the `/codex:adversarial-review --background` plan review, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the review scratch file).
@@ -74,12 +74,27 @@ Before drafting the plan, read — in parallel — whatever exists:
 
 The plan's test designs must conform to these. A plan that proposes `time.Now()` in a test, or a hand-written fake where the repo uses generated mocks, is wrong on its face — the rules win.
 
+## Step 2a - Grill the user on the plan (`grilling` skill)
+
+Before drafting the plan, invoke the **`grilling`** skill with the Skill tool and run its session to completion. `grilling` is the skill `/grill-me` loads; call it by that name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
+
+Seed the design tree from the Step 1 baseline and the Step 2 rules, with recommended answers specific to these packages:
+
+- **Target** - per package: a numeric statement-coverage target, or "cover the high-risk paths" (usually the better answer).
+- **Gap scope** - which of the largest uncovered gaps this pass closes, and which go to Non-goals (e.g. integration-only paths behind build tags).
+- **Production seams** - any `Clock`/port extraction a gap would force, approved now rather than discovered mid-implementation.
+- **Safety-critical scope** - which packages need `task mutation` before merge, when a package's classification is not already settled by the repo's rules.
+
+Ask only where the answer changes the plan; the repo's testing rules are facts, not questions. Facts are your legwork, never the user's.
+
+**Done when** the frontier is empty (every branch of the design tree visited) and the user has confirmed shared understanding. Then list the **settled decisions** as a numbered list (`D1`, `D2`, ...) in the conversation: Step 3 writes the plan from it, and Step 5 checks every finding against it.
+
 ## Step 3 — Draft the coverage-improvement plan
 
 Write the plan to `specs/<branch>/coverage-plan.md` (create the dir if absent; `<branch>` is the current branch name). If a `specs/<branch>/` already exists, add the file alongside the existing plan docs.
 
 The plan must contain:
-1. **Baseline** — the per-package and total coverage numbers from Step 1, plus the dated target (e.g. "raise `internal/domain` from 61% → ≥85% statement coverage").
+1. **Baseline** — the per-package and total coverage numbers from Step 1, plus the dated target settled in Step 2a (e.g. "raise `internal/domain` from 61% → ≥85% statement coverage").
 2. **Gap inventory** — a table of uncovered or under-covered functions, each tagged with the boundary classes (from CLAUDE.md's boundary-driven list) it currently misses: happy / zero-empty-nil / singleton / max-overflow / invalid / cancellation-deadline / concurrency.
 3. **Test designs** — for each gap, the specific test cases to add, named after the boundary they exercise (`"empty_input"`, `"ctx_cancelled_mid_call"`), the port/mock to use, and any new `Clock`/port extraction the test forces in production code.
 4. **Safety-critical callout** — if any target package is on a safety-critical path (commands, ownership, consist propagation), note that mutation testing (`task mutation`) is required before merge, not just line coverage.
@@ -103,7 +118,8 @@ Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_P
 ## Step 5 — Validate codex's findings, then update the plan
 
 Do **not** apply codex's comments blindly — validate each one against the actual code and CLAUDE.md:
-- For every finding, check it against the real source/tests and the rules. Mark each: **accept** (real gap — fold the fix into the plan), **reject** (incorrect or contradicts CLAUDE.md — note why), or **defer** (valid but out of scope — move to Non-goals).
+- For every finding, check it against the real source/tests, the rules, and the Step 2a settled decisions. Mark each: **accept** (real gap — fold the fix into the plan), **reject** (incorrect, contradicts CLAUDE.md, or only disputes a choice the user made — note why), or **defer** (valid but out of scope — move to Non-goals).
+- A finding showing a settled decision rests on a wrong fact or is unsafe is not rejected: before giving it a disposition, reopen that branch of the design tree and run grilling on it until its frontier is empty again and the user confirms, then update the settled decisions. The same applies to an accepted finding that would overturn a settled decision.
 - Common codex misses to scrutinize: suggestions that add a third-party assertion lib (check ADRs first), proposals to test unexported internals directly (CLAUDE.md says mock at the port, never below), or "increase coverage" advice that would test the standard library or the type under test.
 - Rewrite `coverage-plan.md` incorporating the accepted findings. Record the accept/reject/defer dispositions briefly so the reasoning is traceable.
 
@@ -130,6 +146,7 @@ go test <target-packages> -race -count=1 -coverprofile=coverage.after.out
 go tool cover -func=coverage.after.out
 ```
 - Prefer `task ci` for the full gate (lint + test + build + arch-lint) unless the user asked to skip it. Run `task --list` first to confirm these targets exist; if the Taskfile names them differently (or there is no Taskfile), run the project's equivalents — the gate is fmt + lint + build + test however the project spells it. This skill assumes a Go project with a Taskfile; adapt the verbs, not the gate.
+- Check each package against the target settled in Step 2a (its number, or its named high-risk paths each pinned by a test). A miss is a stop-and-ask: close more gaps, defer the named gap, or waive the target explicitly.
 - Compare `coverage.after.out` total against the Step 1 baseline. "Significantly increased" means a material, named jump (state the before → after per package and total). If the lift is marginal, say so honestly and propose the next gap rather than declaring success.
 - For safety-critical packages, run `task mutation` and report surviving mutants — line coverage alone does not clear a safety path.
 - Clean up scratch coverage files (`coverage.before.out`, `coverage.after.out`) unless the user wants them kept; never commit them.
@@ -137,7 +154,7 @@ go tool cover -func=coverage.after.out
 ## Step 8 — Final response checklist (per CLAUDE.md)
 
 Before handoff, state:
-- **What changed** — packages, tests added, any production port extraction, before → after coverage per package and total.
+- **What changed** — packages, tests added, any production port extraction, before → after coverage per package and total, and each Step 2a target as met / deferred / waived.
 - **Which checks ran** — `task fmt/lint/build/test`, `task ci`, `task mutation` (if safety-critical), and the codex review.
 - **Which checks were skipped and why.**
 - **Remaining risk** — uncovered paths left in Non-goals, surviving mutants, or any boundary class still unaddressed, especially around safety, ordering, concurrency, or architecture boundaries.
@@ -150,4 +167,5 @@ Use `AskUserQuestion` only for these genuine forks where the answer is the user'
 - Zero production `.go` files changed.
 - A target package will not compile or its tests are red before you start.
 - `codex` is unavailable or its review fails.
+- A package misses its Step 2a target (Step 7) - options: close more gaps / defer the named gap / waive the target.
 - A planned test cannot be written without a production change larger than a minimal port extraction — options: approve the larger change / defer that gap / revise the plan to avoid the change / stop.

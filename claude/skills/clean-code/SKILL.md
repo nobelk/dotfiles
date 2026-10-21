@@ -1,6 +1,6 @@
 ---
 name: clean-code
-description: Review the current branch's spec and its implementation, then write a simplification plan to simplify-<branch>.md covering clean code, clean architecture, design patterns, idiomatic style, and deduplication across production code, test code, and code organization — clarifying open questions with AskUserQuestion, codex-reviewing the plan and folding in validated findings, then measuring test coverage and closing the high-priority gaps before running the project's format/lint/build/test gates and committing, pushing, and opening or updating the GitHub PR. Invoke manually when a branch's work is functionally complete and you want it cleaned up before review.
+description: Review the current branch's spec and its implementation, then write a simplification plan to simplify-<branch>.md covering clean code, clean architecture, design patterns, idiomatic style, and deduplication across production code, test code, and code organization — settling open questions with the user in a grilling session (the grilling skill), codex-reviewing the plan and folding in validated findings, then measuring test coverage and closing the high-priority gaps before running the project's format/lint/build/test gates and committing, pushing, and opening or updating the GitHub PR. Invoke manually when a branch's work is functionally complete and you want it cleaned up before review.
 ---
 
 # Clean-code skill
@@ -41,7 +41,7 @@ The plan is only as good as the standards it is written against. These are the a
 
 Run the read-heavy analysis and the verbose command runs in **`general-purpose` subagents** (via the `Agent`/`Task` tool); keep orchestration, judgment, and every gate in the main loop:
 
-- **Main loop owns** (never delegate): all of Step 0's scope and git resolution; **every `AskUserQuestion` gate** — subagents cannot prompt the user; **writing and rewriting the plan file** (Step 4, Step 5c's finalization, Step 7's reconciliation); the final accept/reject/defer calls in Step 5c; **invoking other skills**, since the Skill tool runs in this conversation and cannot be launched from inside a subagent; the Step 8 commit, push, and PR; and the Step 9 report.
+- **Main loop owns** (never delegate): all of Step 0's scope and git resolution; **every user gate** - the Step 3 grilling session and every `AskUserQuestion`; subagents cannot prompt the user; **writing and rewriting the plan file** (Step 4, Step 5c's finalization, Step 7's reconciliation); the final accept/reject/defer calls in Step 5c; **invoking other skills**, since the Skill tool runs in this conversation and cannot be launched from inside a subagent; the Step 8 commit, push, and PR; and the Step 9 report.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 1** — read the spec, the branch diff, the surrounding package code, `CLAUDE.md`/ADRs, and the nearest sibling tests; return a structured brief rather than the file contents.
   - **Step 2** — the review passes. Give each subagent **one axis** (clean code, architecture/organization, patterns, idiom, duplication, test quality) over the same changed-file set, and have it return findings as `file:line — observation — why it violates <named standard>`. One axis per subagent keeps each one's judgment sharp and the results easy to merge.
@@ -129,17 +129,21 @@ Run one review pass per axis over the changed set (fan them out; see the delegat
 
 Merge the per-axis results and rank by payoff: correctness and architecture risk first, then duplication and organization, then local readability. **Merge two findings only when they are the same underlying issue with the same remedy** — a shared `file:line` is not enough on its own, since one line can carry both a swallowed error and a layering violation, and those need different changes. When findings genuinely coincide, keep the strongest framing and note the other axes it also trips.
 
-## Step 3 — Clarify the open questions (one grouped AskUserQuestion)
+## Step 3 — Clarify the open questions (`grilling` skill)
 
-Before writing the plan, batch every genuine judgment call into a **single** `AskUserQuestion` call — do not interrogate the user item by item, and do not ask about anything the repo's own documented rules already settle. Ask only where the answer changes the plan. The recurring ones:
+Before writing the plan, invoke the **`grilling`** skill with the Skill tool and run its session to completion. `grilling` is the skill `/grill-me` loads; call it by that name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
 
-- **Depth.** How aggressive should this pass be — surgical (naming, dead code, local extraction only), moderate (plus deduplication and pattern introduction), or structural (plus package moves and boundary changes)? Lead with a recommendation based on what Step 2 actually found and label it `(Recommended)`.
-- **A genuine design fork.** Where two compliant approaches exist and the repo does not pick one, give the trade-off in each option's `description` — never present violating a documented rule as an option.
-- **Spec divergence found in Step 1.** Make the execution semantics explicit in the option text, because this run's default write set is only the plan and tests: **"record it as a correctness item in the plan"** (the code is wrong; the fix is follow-up work for `/implement-plan`), **"update the spec"** (the spec moved on — this edits a spec file, so add it to the write set and re-run the Step 0.7 overlap check on that path now), or **"accepted drift, note only"**. A general bug fix is not on the default menu; if the user wants one now, that is a scope expansion to authorize explicitly, add to the write set, and verify — or to decline and defer.
+Seed the design tree with every genuine judgment call Step 2 surfaced. Ask only where the answer changes the plan; anything the repo's own documented rules already settle is a fact, not a question. The recurring branches:
+
+- **Depth.** How aggressive should this pass be — surgical (naming, dead code, local extraction only), moderate (plus deduplication and pattern introduction), or structural (plus package moves and boundary changes)? Base the recommended answer on what Step 2 actually found.
+- **A genuine design fork.** Where two compliant approaches exist and the repo does not pick one, give the trade-off of each - every option offered complies with the documented rules.
+- **Spec divergence found in Step 1.** Make the execution semantics explicit in the options, because this run's default write set is only the plan and tests: **"record it as a correctness item in the plan"** (the code is wrong; the fix is follow-up work for `/implement-plan`), **"update the spec"** (the spec moved on — this edits a spec file, so add it to the write set and re-run the Step 0.7 overlap check on that path now), or **"accepted drift, note only"**. A general bug fix is not on the default menu; if the user wants one now, that is a scope expansion to authorize explicitly, add to the write set, and verify — or to decline and defer.
 - **Coverage ambition** (feeds Step 6): a target percentage, or "cover the high-risk paths the plan touches" — the latter is usually the better answer and the one to recommend. Whatever is chosen is checked explicitly in Step 7 **after** the re-measurement.
 - **Out-of-scope rot** that the branch's changes made actively harmful: pull it into scope, or leave it and note it.
 
-If Step 2 surfaced nothing that needs a decision, skip this step and say so — an unnecessary question is not diligence.
+Depth and coverage ambition are always open, so the session always runs; when Step 2 found little, it is one short round.
+
+**Done when** the frontier is empty (every branch of the design tree visited) and the user has confirmed shared understanding. Then list the **settled decisions** as a numbered list (`D1`, `D2`, ...) in the conversation: Step 4 writes the plan from it, Step 5a hands it to the reviewer, and Step 5c checks findings against it.
 
 ## Step 4 — Write the plan to `simplify-<branch-slug>.md`
 
@@ -188,7 +192,7 @@ Pass the focus as its **own argument after `--`**, never bundled into a single `
 
 `$focus`:
 
-> Review the simplification plan in <plan-path> against the actual code it describes (the branch's changes vs <base-oid>), the spec at <spec-path> (or note that none was found), and the repo's standards in CLAUDE.md / AGENTS.md and any convention or architecture docs they cite. The user's decisions for this pass were: <Step 3 answers>. For each numbered item in the plan, check: does the cited code actually have the problem claimed; is the named standard really what it violates; is the proposed change genuinely behavior-preserving, or would it alter behavior in an edge case; would it introduce a speculative abstraction, over-engineer a simple path, or trade duplication for coupling; is the sequencing sound, and are the dependencies between groups right. Check the correctness items and any accepted spec drift against the spec's acceptance criteria specifically. Then look for what the plan missed: duplication, layering violations, non-idiomatic constructs, untestable or non-hermetic tests, and organization problems in the changed files that no item covers. Also check the test-gap register against the real tests — items claimed to be pinned by existing tests that are not. Output findings only, numbered, each citing the plan item ID or the file:line it concerns — and if you find nothing, say exactly "No findings" rather than returning an empty response. Do not rewrite the plan.
+> Review the simplification plan in <plan-path> against the actual code it describes (the branch's changes vs <base-oid>), the spec at <spec-path> (or note that none was found), and the repo's standards in CLAUDE.md / AGENTS.md and any convention or architecture docs they cite. The user's decisions for this pass were: <Step 3 settled decisions>. For each numbered item in the plan, check: does the cited code actually have the problem claimed; is the named standard really what it violates; is the proposed change genuinely behavior-preserving, or would it alter behavior in an edge case; would it introduce a speculative abstraction, over-engineer a simple path, or trade duplication for coupling; is the sequencing sound, and are the dependencies between groups right. Check the correctness items and any accepted spec drift against the spec's acceptance criteria specifically. Then look for what the plan missed: duplication, layering violations, non-idiomatic constructs, untestable or non-hermetic tests, and organization problems in the changed files that no item covers. Also check the test-gap register against the real tests — items claimed to be pinned by existing tests that are not. Output findings only, numbered, each citing the plan item ID or the file:line it concerns — and if you find nothing, say exactly "No findings" rather than returning an empty response. Do not rewrite the plan.
 
 Save the result verbatim to a scratch file under `"$tmp"` so the adjudication is auditable.
 
@@ -211,9 +215,9 @@ Record in the Step 9 report that the review came from the native fallback and wh
 
 ### 5c — Validate every finding, then finalize
 
-Do **not** apply review comments blindly — they are hypotheses to adjudicate, whatever their source. For each: re-read the cited code and plan item, check it against the repo's documented rules and the user's Step 3 answers, and mark **accept** (real — fold it in), **reject** (wrong, or it contradicts a rule or a user decision — record why), or **defer** (valid but belongs to a later pass — move it to Non-goals). Scrutinize the usual tendencies: proposing an abstraction where plain code is correct, flagging deliberate test duplication, and recommending changes that would alter behavior under the banner of simplification.
+Do **not** apply review comments blindly — they are hypotheses to adjudicate, whatever their source. For each: re-read the cited code and plan item, check it against the repo's documented rules and the Step 3 settled decisions, and mark **accept** (real — fold it in), **reject** (wrong, or it contradicts a rule or a user decision — record why), or **defer** (valid but belongs to a later pass — move it to Non-goals). Scrutinize the usual tendencies: proposing an abstraction where plain code is correct, flagging deliberate test duplication, and recommending changes that would alter behavior under the banner of simplification.
 
-Rewrite the plan from the accepted dispositions, then present the disposition table to the user. If an accepted finding would overturn a Step 3 decision, do not just apply it — surface it via `AskUserQuestion` first.
+Rewrite the plan from the accepted dispositions, then present the disposition table to the user. If an accepted finding would overturn a settled decision, do not just apply it — reopen that branch of the design tree and run grilling on it until its frontier is empty again and the user confirms, then update the settled decisions first. A finding showing a settled decision rests on a wrong fact or is unsafe takes the same route before it gets a disposition; only a finding that merely disputes a user choice is rejected.
 
 The plan's **review-derived content** is settled here. Steps 6 and 7 do not reopen the adjudicated findings; they may only add what this run itself discovers — the Status section, corrected citations, and any correctness item a new test uncovers (Step 7).
 
@@ -423,8 +427,8 @@ State, per the repo's handoff checklist if it has one:
 - Anything already staged in the index; a dirty path that this run will write to — checked again as each new write target appears; dirty unstaged/untracked paths the user must decide about (Step 0, Steps 3/4/6/7).
 - The branch has no changes against the base — report and stop (Step 0).
 - No spec found for the branch (Step 1).
-- The judgment calls batched in Step 3: depth, a genuine design fork, spec divergence, coverage ambition, out-of-scope rot.
-- An accepted review finding would overturn a Step 3 decision (Step 5c).
+- The judgment calls settled in the Step 3 grilling session (asked as grilling rounds, not `AskUserQuestion`): depth, a genuine design fork, spec divergence, coverage ambition, out-of-scope rot.
+- An accepted review finding would overturn a settled decision (Step 5c; reopen that branch of the grilling session).
 - A changed unit will not compile or its tests are already red, blocking measurement (Step 6).
 - A new test reveals a real bug — fix now or defer (Step 7).
 - Closing a gap needs a production change larger than the minimal seam the plan named (Step 7).

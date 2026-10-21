@@ -1,11 +1,11 @@
 ---
 name: feature-spec
-description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), rebases that branch onto the default branch via the rebase-branch skill so the specs are written against current code, gathers scope/key-decision/validation answers in one grouped AskUserQuestion, writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs, folds validated findings back in, commits the spec files, and pushes the specs/<name> branch to origin. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
+description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), rebases that branch onto the default branch via the rebase-branch skill so the specs are written against current code, settles scope, key decisions, and validation with the user in a grilling session (the grilling skill), writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs, folds validated findings back in, commits the spec files, and pushes the specs/<name> branch to origin. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
 ---
 
 # Feature spec skill
 
-Scaffold the planning docs for the next phase on the roadmap. Output is three files under `specs/<name>/`, written **after** gathering inputs from the user via a single `AskUserQuestion` call, then reviewed by codex (OpenAI Codex CLI) with validated findings folded back into the files, then committed and pushed to the remote `specs/<name>` branch.
+Scaffold the planning docs for the next phase on the roadmap. Output is three files under `specs/<name>/`, written **after** a grilling session with the user has settled every open decision, then reviewed by codex (OpenAI Codex CLI) with validated findings folded back into the files, then committed and pushed to the remote `specs/<name>` branch.
 
 Two related identifiers, derived from one input:
 - `<branch-name>` — the git branch, **always** namespaced under `specs/` (e.g. `specs/2026-05-05-firefly`).
@@ -15,10 +15,10 @@ Two related identifiers, derived from one input:
 
 Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the **`rebase-branch` invocation** (Step 2a) and every gate it raises, the single grouped `AskUserQuestion` (Step 3) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the just-gathered answers), the Step 7 commit and push, and the Step 8 report. Subagents cannot prompt the user, so every gate stays here.
+- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the **`rebase-branch` invocation** (Step 2a) and every gate it raises, the Step 3 grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the settled decisions), the Step 7 commit and push, and the Step 8 report. Subagents cannot prompt the user, so every gate stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 5** — launch the `/codex:adversarial-review --background` review of the three spec files, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
-  - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 answers and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a user decision back through `AskUserQuestion` here — never in a subagent.
+  - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 settled decisions and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a settled decision back to the user here (see Step 6) — never in a subagent.
 
 Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
 
@@ -194,18 +194,25 @@ The first is an unconditional hard stop; the second is a decision the user must 
 
 ### After it returns
 
-- **Re-read every Step 1 document from the worktree, unconditionally** — `specs/roadmap.md`, `specs/mission.md`, `specs/tech-stack.md`, `CLAUDE.md` / `AGENTS.md` and the architecture or convention docs they cite. A perfectly clean rebase with zero reconciliation edits still pulls in an updated roadmap, a changed mission, or new layering rules, and Step 3's options must be built from the post-rebase tree. In particular, **re-validate the phase chosen in Step 1**: the default branch may have delivered it already, in which case pick the next unstarted phase (or stop and ask, per Step 1's rule).
+- **Re-read every Step 1 document from the worktree, unconditionally** — `specs/roadmap.md`, `specs/mission.md`, `specs/tech-stack.md`, `CLAUDE.md` / `AGENTS.md` and the architecture or convention docs they cite. A perfectly clean rebase with zero reconciliation edits still pulls in an updated roadmap, a changed mission, or new layering rules, and Step 3's questions must be built from the post-rebase tree. In particular, **re-validate the phase chosen in Step 1**: the default branch may have delivered it already, in which case pick the next unstarted phase (or stop and ask, per Step 1's rule).
 - Record the outcome (which early exit, or rebased onto `<base>` at `<input-sha>` with N commits replayed plus any reconciliation and doc-staleness edits it made) for the Step 8 report.
 
-## Step 3 — Gather spec inputs (one grouped AskUserQuestion)
+## Step 3 — Grill the user on the spec (`grilling` skill)
 
-Before writing any files, call `AskUserQuestion` **once** with these three questions. Tailor each question's options to what you learned in Step 1 — generic options are useless.
+Before writing any files, invoke the **`grilling`** skill with the Skill tool and run its session to completion. `grilling` is the skill `/grill-me` loads; call it by that name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
 
-1. **Scope** — header `"Scope"`. What is in vs. out for this phase? Offer 2-4 concrete options (e.g., `"MVP: just import + list"`, `"Full: import + list + edit + delete"`). Lead with the recommended option and label it `(Recommended)`.
-2. **Key decision** — header `"Key decision"`. Surface the most consequential open choice you spotted (library, data model, sync vs. async, auth strategy, etc.). Offer 2-4 distinct options with the trade-off in each option's `description`.
-3. **Validation** — header `"Validation"`. How do we know this is done? Offer 2-4 options (e.g., `"Unit + integration tests"`, `"Manual QA checklist"`, `"Staging soak + metrics"`).
+Seed the design tree from what Step 1 found, so every question and recommended answer is specific to this phase — generic questions are useless. The tree must cover at least these branches:
 
-Do **not** write any spec content to disk before this call returns — the answers seed the three files, so nothing under `specs/<name>/` is authored until they are in hand. (This prohibition is about *this skill's* authoring; it does not retroactively forbid the gated reconciliation and doc-staleness edits `rebase-branch` may have committed in Step 2a.)
+- **Scope** - what is in vs. out for this phase (e.g. MVP import + list vs. full import + list + edit + delete).
+- **Key decisions** - every consequential open choice (library, data model, sync vs. async, auth strategy, ...), each with its trade-off. Not only the biggest one: a choice the spec makes without the user is a choice frozen silently.
+- **Validation** - how we know the phase is done (unit + integration tests, manual QA checklist, staging soak + metrics, ...).
+- **Repo-mandated spec content** - anything `CLAUDE.md` / `AGENTS.md` requires the spec to state (e.g. the source-of-truth messages a type projects, a failure-direction table, sender/authorization semantics). Each is a decision for the user, even when the answer looks obvious.
+
+Ask only questions whose answer changes the spec; anything the repo's documented rules already settle is a fact, not a question. Facts are your legwork, never the user's.
+
+**Done when** the frontier is empty (every branch of the design tree visited) and the user has confirmed shared understanding. Then list the **settled decisions** as a numbered list (`D1`, `D2`, ...) in the conversation: Step 4 writes from it, and Step 6 checks every finding against it.
+
+Write nothing under `specs/<name>/` until the session is done - the settled decisions seed the three files. (This prohibition is about *this skill's* authoring; it does not retroactively forbid the gated reconciliation and doc-staleness edits `rebase-branch` may have committed in Step 2a.)
 
 ## Step 4 — Write the three files
 
@@ -213,8 +220,8 @@ Create `specs/<name>/` (where `<name>` is `<branch-name>` without the leading `s
 
 ### `requirements.md`
 - **Context** — 2-4 sentences linking this phase to the roadmap, mission, and tech-stack constraints.
-- **Scope** — `In:` / `Out:` bullet lists, populated from the Scope answer.
-- **Decisions** — bullets capturing the Key-decision answer plus any constraints inherited from mission/tech-stack.
+- **Scope** — `In:` / `Out:` bullet lists, populated from the settled scope decisions.
+- **Decisions** — bullets capturing every settled decision from Step 3 (scope and validation aside) plus any constraints inherited from mission/tech-stack.
 
 ### `plan.md`
 A series of **numbered task groups**. Each group:
@@ -232,7 +239,7 @@ Open the plan with a short **Engineering standards** section stating the invaria
 Each task group then states only what is concrete to it - its tests, the package/layer it lands in, and any pattern decision that applies - never a restatement of the standards boilerplate.
 
 ### `validation.md`
-- **Success criteria** — populated from the Validation answer.
+- **Success criteria** — populated from the settled validation decisions.
 - **Checklist** - concrete checkboxes: tests to add, the repo's own quality gates (format, lint, build, full test suite, and any architecture/static-analysis checks it defines), manual checks, metrics/dashboards to confirm.
 - **Done when** — one line naming the binary signal (test passes, metric crosses threshold, etc.).
 
@@ -257,14 +264,14 @@ Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_P
 Do **not** apply codex's comments blindly — they are hypotheses to adjudicate, not instructions. For each numbered finding:
 
 1. Re-read the cited spec passage and confirm the issue is real.
-2. Check it against the user's Step 3 answers — a finding that contradicts a scope, key-decision, or validation choice the user explicitly made is **rejected**, however plausible.
+2. Check it against the Step 3 settled decisions — a finding that only disputes a decision the user explicitly made is **rejected**, however plausible. A finding showing a settled decision rests on a wrong fact or is unsafe goes back to the user before it gets a disposition (as below).
 3. Check it against `specs/mission.md` / `specs/tech-stack.md` constraints.
 4. Mark a disposition:
    - **accept** — real gap or contradiction; update the affected file(s).
    - **reject** — factually wrong, restates a deliberate scope cut, or contradicts a user decision; note why.
    - **defer** — valid but belongs to a later phase or needs a user decision; note where it should go.
 
-Apply the accepted findings to the spec files, keeping each edit traceable to its finding number. If an accepted finding would change a decision the user made in Step 3 (e.g. widen scope, swap the key decision), do not edit — surface it via AskUserQuestion first. Present the full disposition table to the user.
+Apply the accepted findings to the spec files, keeping each edit traceable to its finding number. If an accepted finding would change a settled decision (e.g. widen scope, swap a key decision), do not edit — reopen that branch of the design tree and run grilling on it until its frontier is empty again and the user confirms, then update the settled decisions before editing. Present the full disposition table to the user.
 
 ## Step 7 — Commit and push
 

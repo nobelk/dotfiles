@@ -65,7 +65,7 @@ An inline answer still uses the Output Format, lists every category it did not s
 Map the tools this session has to the seven evidence categories in `references/source-playbook.md`. Read the tool names in context, including deferred tools listed in system reminders (load a deferred tool's schema with `ToolSearch` before calling it). One MCP can serve two categories (Atlassian covers both the ticket tracker and long-form documents); give each category its own investigator.
 
 - A plugin that exposes only `authenticate` / `complete_authentication` is **not signed in**. Record it as a gap and tell the user which one to sign in to; leave sign-in to the user.
-- For Atlassian, resolve the `cloudId` once with `getAccessibleAtlassianResources` and pass it to both investigators.
+- For Atlassian, resolve the `cloudId` once with `getAccessibleAtlassianResources` and pass it to both investigators. Read the `scopes` it returns: a product with no matching read scope (no `*jira*` scope for Jira, no `*confluence*` scope for Confluence) is **not usable**. Record it as a gap naming the missing scope, and spawn no investigator for it.
 - Source control is always available through git and `gh`.
 
 ## Step 6. Spawn Parallel Investigators
