@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: Code-review the repository's changed files by running codex (OpenAI Codex CLI) through the `/codex:review --background` flow, adjudicating every finding against the actual code and project rules (accept / reject / defer with evidence), fixing the ones that hold up, and verifying with the project's own gates. Auto-detects scope — uncommitted changes if any, else the branch delta vs the default branch. Invoke manually before committing or opening a PR when you want a second-model review of your changes.
+description: Reviews the repository's changed files with codex (OpenAI Codex CLI), adjudicates every finding against the actual code and project rules (accept / reject / defer with evidence), fixes the ones that hold up, and verifies with the project's own gates. Scope is auto-detected (uncommitted changes, else the branch delta against the default branch). Use before committing or opening a PR when a second-model code review is wanted.
 ---
 
 # Codex review skill
@@ -11,25 +11,25 @@ If the repo has a `CLAUDE.md`, read it first — it is authoritative for convent
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): the scope decision in Step 0, every `AskUserQuestion` gate (Step 0 scope tie-break, Step 2 codex-unavailable, Step 4 ambiguous/invasive fix), presenting the disposition table, and the Step 6 final report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
+- **Main loop owns** (never delegate): the scope decision in Step 0, every `AskUserQuestion` gate (Step 0 scope tie-break, Step 4 ambiguous/invasive fix, Step 5 pre-existing red), the Step 2 fallback decision, presenting the disposition table, and the Step 6 final report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose output out of the main context):
-  - **Step 2** — launch the `/codex:review --background` review, poll `/codex:status` to completion **under the 10-minute deadline / dead-pid / 5-minute-silence liveness rules defined in Step 2** (on breach, cancel and signal the main loop to run the native adversarial fallback — no fast-model retry), fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The lengthy codex transcript stays in the subagent. Because the native fallback fans out subagents the main loop owns, the *decision* to fall back returns to the main loop rather than firing inside this subagent.
+  - **Step 2** — launch the codex review through the companion script, wait for it **under the deadline and liveness rules in Step 2** (on breach, cancel and report back so the main loop runs the native adversarial fallback), fetch the result, and return the raw findings verbatim (also written to the scratch file). The lengthy codex transcript stays in the subagent. Because the native fallback fans out subagents the main loop owns, the *decision* to fall back returns to the main loop rather than firing inside this subagent.
   - **Step 3** — split the findings into disjoint batches (~3–5 each; contradictory findings share a batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 1 project rules and adjudicating its findings against the actual code, returning its slice of the accept/reject/defer disposition table with file/line evidence. The main loop merges the slices, reviews the table, and owns any follow-up question.
   - **Step 4** — after the main loop has cleared every ambiguous/invasive finding via `AskUserQuestion`, dispatch a subagent to apply the remaining accepted fixes and return a summary mapped to finding numbers.
   - **Step 5** — run the project's verification gate (`task ci`, etc.) and return pass/fail plus only the failing output.
 
 Give each subagent a self-contained prompt: the exact command(s) to run, the file list/scope from Step 0, and the precise shape of the result to return.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Here the core path **is** a chain (Step 2 → 3 → 4 → 5: findings feed adjudication feeds fixes feed verification), so the steps stay sequential — though within Step 3 the adjudication batches fan out in parallel — and the genuinely independent work runs in parallel:
-- **Launch codex FIRST, then overlap — the review must never be idle wall-clock.** The Step 2 launch has **no data dependency on Step 1**: codex computes the diff itself. So fire the Step 2 launch subagent and the Step 1 rule-gathering subagents in the **same message**, and let codex run (steady-state 1–3 min; the model fix in `~/.codex/config.toml`'s `review_model` keeps it there) *while* you gather rules. Never gather rules first and then start codex — that serializes two things that should overlap. When this skill is reached from `implement-spec` (or any flow where implementation just finished), launch the review the instant the code is written, then do the changelog/doc/self-review wrap-up while codex runs, and collect `/codex:result` at the end — a 2–3 min review overlapped with other work costs ≈0 wall-clock. Only Step 3 (adjudication) actually needs the findings in hand.
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Here the core path **is** a chain (Step 2 → 3 → 4 → 5: findings feed adjudication feeds fixes feed verification), so the steps stay sequential — though within Step 3 the adjudication batches fan out in parallel — and the genuinely independent work runs in parallel:
+- **Launch codex FIRST, then overlap.** The Step 2 launch has **no data dependency on Step 1**: codex computes the diff itself. Fire the Step 2 launch subagent and the Step 1 rule-gathering subagents in the **same message**, and let codex run (typically 1–3 minutes) *while* you gather rules. Only Step 3 (adjudication) needs the findings in hand.
 - **Step 1 rule-gathering** — fan the `CLAUDE.md` / ADR / sibling-code reads out across parallel reader subagents in one message; they share no state.
-- **Step 2 union scope** (user chose both) — run the `--uncommitted` and `--base` codex reviews as two subagents in the same message; they are independent. Give each a **distinct** scratch file (e.g. `/tmp/codex-review-<branch>-uncommitted.md` and `…-base.md`) so the parallel writes don't clobber one shared path, then merge and dedupe by file:line in the main loop afterward.
+- **Step 2 union scope** (user chose both) — launch the working-tree and branch-delta reviews with distinct job tags (Step 2 job identity), each with its **own** scratch file, wait on both, then merge and dedupe by file:line in the main loop (details in Step 2).
 
 ## Step 0 — Determine the review scope (auto-detect)
 
-"New and modified files" resolves in this order:
+If the invoking user or calling skill already named the scope (uncommitted, branch delta, or union) or a pinned base ref, use them as given: skip the question in step 3 below, and use the named base instead of resolving one in step 2. Otherwise "new and modified files" resolves in this order:
 
 1. Collect **uncommitted changes**: staged, unstaged, and untracked files.
    ```bash
@@ -49,44 +49,48 @@ Give each subagent a self-contained prompt: the exact command(s) to run, the fil
    - Only uncommitted changes exist → review those.
    - Only a branch delta exists (clean tree) → review the branch delta.
    - **Both exist and the file sets differ** → use AskUserQuestion to ask the user which scope to review (uncommitted only, branch delta only, or the union). Do not guess.
+   - Both exist with the same file set → review the union.
    - Neither exists → stop and tell the user there is nothing to review.
 
-Filter out generated files, vendored code, and lockfiles unless the user asks otherwise. Record the final file list — it is the contract for everything below.
+Filter out generated files, vendored code, and lockfiles unless the user or calling skill asks otherwise, and list what was filtered in the Step 6 report. Record the final file list — it is the contract for everything below.
 
 ## Step 1 — Gather the project's rules
 
-Before invoking codex, read (in parallel) whatever exists: `CLAUDE.md`, ADRs or specs relevant to the changed files, and the nearest existing code/tests in the touched packages. You need these to *validate* codex's findings in Step 3 — a finding that contradicts a documented project rule is rejected no matter how plausible it sounds.
+While the Step 2 launch runs (see *Parallelize by default*), read in parallel whatever exists: `CLAUDE.md`, ADRs or specs relevant to the changed files, and the nearest existing code/tests in the touched packages. You need these to *validate* codex's findings in Step 3 — a finding that contradicts a documented project rule is rejected no matter how plausible it sounds.
 
-## Step 2 — Run codex's review via `/codex:review --background` over the chosen scope
+## Step 2 — Run codex's native review over the chosen scope
 
-Run codex's native review through the **`/codex:review --background`** flow from the repo root — it computes the diff itself, so pass only the scope flag matching Step 0. The `--background` mode detaches the run into a Claude background task; recover its output with `/codex:status` (progress) and `/codex:result <job-id>` (the stored findings):
+The `/codex:*` entries are Claude Code slash commands with `disable-model-invocation: true`: neither this loop nor a subagent can call them, and they are not shell commands. Check `command -v codex`, then drive the companion script the plugin wraps, from the repo root:
 
 ```bash
-# Scope = uncommitted changes (working tree):
-/codex:review --background --scope working-tree
-# Scope = branch delta:
-/codex:review --background --base <base>
+# Resolve once (the version dir varies; sort -V so 1.0.10 beats 1.0.9), then substitute the path for <companion>:
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+
+node "<companion>" review --background --scope working-tree   # scope = uncommitted changes; launch with run_in_background: true
+node "<companion>" review --background --base <base>          # scope = branch delta;        launch with run_in_background: true
+node "<companion>" status --json                 # the new job's id is in .running[] (kind review)
+node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded 4-minute wait; repeat until finished
+node "<companion>" status <job-id> --json        # status, pid, logFile for the liveness check
+node "<companion>" result <job-id>               # the stored verdict and findings
+node "<companion>" cancel <job-id>               # abandon a dead or stalled job
 ```
 
-`/codex:review` is native-review only — it uses codex's built-in review prompt and **does not accept custom focus instructions** (that is why the CLAUDE.md-conventions check lives in the Step 3 adjudication, not in the review call). If a tailored review prompt is ever required, that is the `/codex:adversarial-review --background "<focus>"` sibling, not this skill.
+Pass each flag as its own argument, never one quoted string (the companion re-splits a single string with its own parser). The companion accepts `--background` but runs the review in the foreground; the Bash `run_in_background: true` flag is what detaches it; the job is recorded in the plugin's state, so the user's own `/codex:status` and `/codex:result` show it too. `review` is codex's native reviewer: it computes the diff itself and **accepts no custom focus text** (the companion rejects it), which is why the CLAUDE.md-conventions check lives in the Step 3 adjudication. A tailored prompt needs `adversarial-review`, which is not this skill.
 
-Concretely, `/codex:review --background` launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--background --scope working-tree"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root). Then:
-
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job reports finished, then read `/codex:result <job-id>` for the verdict and findings. Only then proceed to Step 3.
-- **Enforce a 10-minute deadline AND a mechanical liveness check.** The companion has no internal timeout — a stalled `review/start` turn hangs the job forever (observed: 3.5 min of activity, then 38 min of silence; and a job that died one minute in yet sat `status:"running"`, `updatedAt:null` with a dead `pid`, never reaped). Poll with `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" status <job-id> --wait` (4-min bounded waits) and track elapsed time. Between polls, read the job's state file (`~/.claude/plugins/data/codex-openai-codex/state/<workspace>/jobs/<job-id>.json`) and treat the job as **dead now** — no waiting — if its `pid` is not alive (`ps -p <pid>`) while status still says `running`; treat it as **stalled** if its `logFile` mtime has been silent for **5+ minutes**. On death/stall/deadline: run `/codex:cancel <job-id>` (and, if it left a stale state file, remove that job's `.json`/`.log` so it doesn't masquerade as running later), then go straight to the native adversarial fallback below — do **not** burn time on the `gpt-5.4-mini` retry, which has itself stalled on large diffs.
-- For the "union" scope (user chose both), launch **two** background jobs — one `--scope working-tree`, one `--base <base>` — in the same message, await both via their job IDs, then merge the findings, deduping overlaps by file:line.
-- Capture the `/codex:result` output verbatim and save it to a scratch file (e.g. `/tmp/codex-review-<branch>.md`) so Step 3 is auditable. Do **not** commit this file.
-- If `codex` is not installed or the launch itself fails outright (no job created), do not silently skip: tell the user, then apply the native adversarial fallback below.
+- **Deadline and liveness.** The companion has no internal timeout; a stalled review turn hangs the job indefinitely, and a job whose process died can keep saying `running`. Enforce a **10-minute** deadline for the whole review. Treat the job as **dead now** if its `pid` is not alive (`ps -p <pid>`) while status still says `running`, and as **stalled** if its `logFile` has been silent for **5+ minutes**. On death, stall, or deadline: run `cancel <job-id>` (it marks the job cancelled; do not hand-delete files under the plugin's state directory) and go straight to the native adversarial fallback below. Do not retry codex.
+- **Unusable result.** A job that completes with an error, or whose result is absent or unreadable, counts as a failed review and takes the fallback. A review that completes and reports no findings is a passing review.
+- **Job identity.** Give each launch its own tag: prefix the launch command with `CODEX_COMPANION_SESSION_ID=codex-review-<scope>-<random>` (the companion records it on the job), and find the job id with the same prefix on `CODEX_COMPANION_SESSION_ID=<tag> node "<companion>" status --json`, which then lists only that launch's job (in `running`, `latestFinished`, or `recent`). Do not match on `summary` or take "the newest job": the companion overwrites `summary` when a job finishes, and other reviews may share the workspace. If the tagged status shows no job, or more than one, treat it as a failed launch. Later `status <job-id>`, `result`, and `cancel` calls take the id and need no tag.
+- **Union scope** (user chose both): launch both jobs with distinct tags, identify each by the rule above, wait on both job IDs, then merge the findings, deduping overlaps by file:line.
+- **Save the output.** Capture each `result` verbatim to a scratch file named from the branch with `/` replaced by `-` (e.g. `"${TMPDIR:-/tmp}/codex-review-<branch>.md"`; add `-uncommitted` / `-base` for the union scope) so Step 3 is auditable. Do **not** commit it.
+- If `codex` or the companion script is missing, or the launch fails outright (no job created), do not silently skip: tell the user, then apply the native adversarial fallback.
 
 ### Native adversarial fallback (when codex stalls, dies, or is unavailable)
 
-Codex is the *second opinion*, never the critical path. The moment the liveness check above fires — or codex is unavailable — **do not block the workflow waiting on it**. Fall back to an in-loop review that has no external process and cannot stall:
+Codex is the *second opinion*, never the critical path. When the liveness check fires, the result is unusable, or codex is unavailable, fall back to an in-loop review that has no external process and cannot stall:
 
 - Fan out **2–3 adversarial `general-purpose` subagents in a single message**, each with a distinct lens over the exact Step 0 file list and the Step 1 project rules — e.g. **correctness/invariants**, **error-handling / silent-failure / fallback behavior**, and **test-coverage / edge cases**. Instruct each to cite `file:line` and to *verify* each claim against the actual code (no hypotheticals).
-- In a repo that ships review agents, prefer those over generic subagents: this project's `pr-review-toolkit` provides `silent-failure-hunter`, `type-design-analyzer`, and `pr-test-analyzer` — dispatch the ones that fit the diff, concurrently.
-- Feed the returned findings into Step 3 exactly as if they were codex's — the adjudication (accept/reject/defer with evidence) is identical; only the source changed. Note in the Step 6 report that the review came from the native fallback and why (codex stalled/died/unavailable).
-
-Use AskUserQuestion only if you need the user to choose between retrying codex and proceeding with the native fallback; otherwise proceed with the fallback and report it.
+- If the session offers dedicated review agents (for example `pr-review-toolkit`'s `silent-failure-hunter`, `type-design-analyzer`, `pr-test-analyzer`), prefer the ones that fit the diff, dispatched concurrently.
+- Feed the returned findings into Step 3 exactly as if they were codex's — the adjudication (accept/reject/defer with evidence) is identical; only the source changed. Note in the Step 6 report that the review came from the native fallback and why (codex absent / launch failed / dead pid / stalled / deadline / unusable result).
 
 ## Step 3 — Validate every codex finding (the load-bearing step)
 
@@ -117,7 +121,7 @@ While fixing:
 
 ## Step 5 — Verify
 
-Run the project's own gates over the result — whatever the repo defines (`task ci`, `make test`, `npm test`, etc.); prefer the full local CI target when one exists. If any gate fails, fix forward or revert the offending fix — never hand off red.
+Run the project's own gates over the result — whatever the repo defines (`task ci`, `make test`, `npm test`, etc.); prefer the full local CI target when one exists. Give each long-running gate an upper bound (`timeout -k 10 900 task ci`, `go test -timeout 600s`) so a hung test cannot stall the run. If any gate fails because of a fix, fix forward or revert the offending fix — never hand off red; a failure unrelated to the fixes is the pre-existing-red stop below.
 
 ## Step 6 — Final report
 
@@ -132,6 +136,7 @@ State, per the repo's handoff checklist if it has one:
 ## Stop-and-ask conditions (use AskUserQuestion; do not silently proceed)
 
 - Both uncommitted changes and a branch delta exist with differing file sets (Step 0).
-- `codex` is unavailable, stalls, or its review errors (Step 2) — proceed with the native adversarial fallback; ask only if the user should choose between retrying codex and falling back.
 - An accepted finding's fix is ambiguous or invasive (Step 4).
 - A verification gate fails for a reason unrelated to the fixes (pre-existing red) — ask whether to proceed, fix it, or stop.
+
+Codex being unavailable, stalling, or erroring (Step 2) is not a stop: run the native adversarial fallback without asking and report it.

@@ -1,6 +1,7 @@
 ---
 name: review-response
-description: Prepare a principal-engineer-grade plan for responding to a pull request's review comments, written to review_response_<PR#>.md — per-thread classification (agree / modify / push back / clarify) with evidence from the code, tests, specs, and Jira ticket, a drafted reply each, and sequencing, then codex-reviewed. Takes a GitHub PR link or bare number as the argument (inferred from the current branch if omitted). The plan file is the only deliverable — never posts to the PR or changes code. Invoke manually when a PR has review comments to respond to.
+description: Plans responses to a GitHub pull request's review comments and writes them to review_response_PR#.md. Classifies each thread (agree, agree with modification, push back, needs clarification) with evidence from the code, tests, specs, and Jira ticket, drafts a reply for each, sequences the work, and has codex review the plan. Never posts to the PR or changes code. Takes a PR link or number (defaults to the current branch's PR). Use when a PR has review comments to respond to.
+argument-hint: "[PR-URL | PR-number]"
 ---
 
 # Review-response skill
@@ -9,7 +10,7 @@ Act as a principal software engineer preparing to respond to code review feedbac
 
 ## Subagent delegation — parallel by default
 
-Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent`/`Task` tool) and keep orchestration in the main loop. When two or more subagent tasks are independent, **launch them in a single message with multiple `Agent` tool calls so they run concurrently** — never serialize subagents that don't depend on each other's output.
+Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent` tool) and keep orchestration in the main loop. When two or more subagent tasks are independent, **launch them in a single message with multiple `Agent` tool calls so they run concurrently**.
 
 - **Main loop owns** (never delegate): every `AskUserQuestion` gate, writing/editing `review_response_<PR#>.md`, and the final report — subagents cannot prompt the user.
 - **Delegate, in parallel**:
@@ -24,7 +25,7 @@ Run the expensive, self-contained steps in **`general-purpose` subagents** (via 
 The skill accepts one argument: a GitHub PR link (`https://github.com/<owner>/<repo>/pull/<number>`) or a bare PR number (resolved against the repo in the current directory).
 
 - Verify `gh` is authenticated (`gh auth status`). If not, stop and tell the user to run `gh auth login` (suggest `! gh auth login` so it runs interactively in the session).
-- If a full URL is given, parse `<owner>/<repo>` and `<number>` from it. Pass `--repo <owner>/<repo>` to every `gh` call so the skill works even when the cwd is a different clone; if the cwd is not a clone of that repo, note it — Step 3's code analysis then reads files via `gh api` / `git fetch` of the PR head instead of the local tree.
+- If a full URL is given, parse `<owner>/<repo>` and `<number>` from it. Pass `--repo <owner>/<repo>` to every `gh pr` call (`gh api` has no `--repo` flag; its paths below name the repo explicitly) so the skill works even when the cwd is a different clone; if the cwd is not a clone of that repo, note it — Step 3's code analysis then reads files via `gh api` / `git fetch` of the PR head instead of the local tree.
 - If no argument is given, try `gh pr view --json number,title,url` on the current branch. If it resolves, confirm that PR with the user via `AskUserQuestion`; if it doesn't, ask the user for the PR link — do not guess.
 - The output path is always **`review_response_<PR#>.md` in the current working directory** (e.g. `review_response_1234.md`).
 - If the plan file already exists, use `AskUserQuestion` to ask whether to **overwrite**, **update in place**, or **abort**. Update in place means: re-fetch all threads; keep entries for threads whose comments are unchanged (preserving any user edits to the drafted replies); add new threads; mark threads now resolved on GitHub as `✅ Resolved`; and re-run Steps 3–6 only for new or changed threads.
@@ -38,15 +39,23 @@ Gather the full review context via `gh` (JSON output, not screen-scraping):
 - Inline review threads: `gh api repos/<owner>/<repo>/pulls/<n>/comments --paginate` — these carry `path`, `line`/`original_line`, `diff_hunk`, `in_reply_to_id`, and `pull_request_review_id`. Reconstruct threads by grouping on the root comment (`in_reply_to_id` chains).
 - Reviews (approvals / change requests and their summary bodies): `gh api repos/<owner>/<repo>/pulls/<n>/reviews --paginate`.
 - Top-level conversation comments: `gh api repos/<owner>/<repo>/issues/<n>/comments --paginate` — include only those that are actual review feedback, not bot/CI noise.
-- Thread resolution state: `gh api graphql` on `reviewThreads { isResolved isOutdated }` — resolved and outdated threads are listed in the plan for completeness but marked as such and given no action unless their content is still live.
+- Thread resolution state: resolved and outdated threads are listed in the plan for completeness but marked as such and given no action unless their content is still live. Map each thread to its REST root comment via `databaseId`:
+  ```bash
+  gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F n=<n> -f query='
+    query($owner:String!,$repo:String!,$n:Int!,$endCursor:String){
+      repository(owner:$owner,name:$repo){ pullRequest(number:$n){
+        reviewThreads(first:100,after:$endCursor){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ isResolved isOutdated comments(first:1){ nodes{ databaseId } } } } } } }'
+  ```
 
 If the PR has no unresolved review comments, say so and use `AskUserQuestion` to ask whether to still produce a plan covering resolved/outdated threads or stop.
 
 ## Step 2 — Identify the associated Jira ticket
 
 - Extract candidate ticket keys (`[A-Z][A-Z0-9]+-\d+`) from, in priority order: the PR head branch name, the PR title, the PR body, and the PR's commit messages (`gh pr view --json commits`).
-- Exactly one candidate: fetch it. Multiple candidates or zero: present the candidates (or ask for a key) via `AskUserQuestion`.
-- Fetch the ticket with the Atlassian MCP tools (`mcp__claude_ai_Atlassian__getJiraIssue`; load via ToolSearch first if deferred). Capture: summary, description, acceptance criteria, status, linked issues, and recent comments — this is the source of truth for *intended* behavior when adjudicating review comments in Step 4.
+- Drop candidates that do not resolve to an issue (the pattern also matches tokens like `UTF-8`). Exactly one remaining candidate: use it. Multiple or zero: present the candidates (or ask for a key) via `AskUserQuestion`.
+- Fetch the ticket with the Atlassian MCP tools. They are deferred and may be exposed as `mcp__claude_ai_Atlassian__<tool>` or `mcp__plugin_engineering_atlassian__<tool>`; load `getAccessibleAtlassianResources` (for the required `cloudId`) and `getJiraIssue` with ToolSearch (e.g. `+atlassian getJiraIssue`). Call `getJiraIssue` with `fields: ["*all"]` so custom acceptance-criteria fields and comments come back. Capture: summary, description, acceptance criteria, status, linked issues, and recent comments — this is the source of truth for *intended* behavior when adjudicating review comments in Step 4.
 - If the Atlassian MCP server is not connected or the fetch fails, do not fabricate ticket content: ask via `AskUserQuestion` whether to proceed without the ticket (the plan then notes "Jira context unavailable" wherever ticket evidence would apply) or stop.
 
 ## Step 3 — Analyze the codebase, tests, and specs against each comment
@@ -90,10 +99,20 @@ Write the plan in this order:
 
 Have codex (OpenAI Codex CLI) review the plan, then validate and address its comments:
 
-1. **Run the review in a `general-purpose` subagent**: launch `/codex:adversarial-review --background` targeting `review_response_<PR#>.md` (review focus: is every unresolved thread covered; do classifications match the cited evidence; are push-backs actually defensible from the code/tests/specs; are drafted replies specific and professional; is the execution order dependency-correct; is anything scoped into this PR that belongs in a follow-up ticket). The subagent polls `/codex:status` to completion, fetches `/codex:result <job-id>`, and returns the raw findings verbatim.
+1. **Run the review in a `general-purpose` subagent.** The `/codex:*` slash commands set `disable-model-invocation: true`, so neither you nor a subagent can call them; the subagent drives the companion script they wrap, from the current directory:
+
+   ```bash
+   ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+   node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"   # run_in_background: true
+   node "<companion>" status                                       # read the new job id
+   node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded wait; repeat until finished
+   node "<companion>" result <job-id>                              # findings
+   ```
+
+   `<focus>`: "Review review_response_<PR#>.md, a plan for answering the review comments on PR <url>; the code under review is the PR head. Check: is every unresolved thread covered; do classifications match the cited evidence; are push-backs defensible from the code/tests/specs; are drafted replies specific and professional; is the execution order dependency-correct; is anything scoped into this PR that belongs in a follow-up ticket. Output numbered findings (plan section, issue, suggested change); do not edit files." Pass it as its own quoted argument. Enforce a 10-minute deadline; on deadline or a failed job, run `node "<companion>" cancel <job-id>` and report the review as failed. The companion only runs inside a git repository; if the current directory is not one, or no companion path resolves, run `timeout -k 10 600 codex exec --sandbox read-only --skip-git-repo-check -o <scratch-file> "<focus>"` instead. The subagent returns the raw findings verbatim.
 2. **Adjudicate each finding in parallel**: split the findings into batches (one per plan section, or ~3–5 findings each) and launch one adjudication subagent per batch **in a single message**. Each returns an accept/reject/defer disposition table with one-line evidence per finding, validated against the PR threads, the Step 3 analysis, and the Jira ticket — codex comments are input, not orders. Batches must be disjoint; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict.
 3. **Apply accepted findings** to the plan file in the main loop. Any finding that hinges on a judgment call you cannot settle from the evidence goes to the user via `AskUserQuestion`; never silently flip a classification.
-4. If codex is unavailable or the review fails, say so explicitly and use `AskUserQuestion` to ask whether to finalize the plan without the review or stop.
+4. If codex is unavailable (no `codex` on `PATH`) or the review fails, say so explicitly and use `AskUserQuestion` to ask whether to finalize the plan without the review or stop.
 
 ## Step 7 — Report
 

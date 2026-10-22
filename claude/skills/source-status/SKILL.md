@@ -1,6 +1,6 @@
 ---
 name: source-status
-description: Sync every intramotev git repo under ~/sources to its default branch, review the last three days of commits and PRs against it as a principal engineer, and write an adversarially-verified summary of key changes and critical issues (under 450 words) to ~/sources/review/source_summary_MM_DD_YY.md.
+description: Syncs every intramotev git repo under ~/sources to its default branch without discarding local work, reviews the last three days of commits and PRs against it as a principal engineer, and writes an adversarially-verified summary of key changes and critical issues (under 450 words) to ~/sources/review/source_summary_MM_DD_YY.md.
 disable-model-invocation: true
 ---
 
@@ -36,19 +36,24 @@ Done when: you hold a list of `(dir, owner/repo)` pairs, and every skipped top-l
 
 ## Step 2 — Sync each repo to its default branch
 
-Run per repo, sequentially, from the repo dir. Each repo ends in exactly one sync state: `synced`, `stashed+synced`, `review-only (<reason>)`, or `stale (<reason>)`.
+Run per repo, sequentially, from the repo dir. Each repo ends in exactly one sync state: `synced`, `stashed+synced`, `review-only (<reason>)`, `stale (<reason>)`, or `incomplete (<reason>)`.
+
+**Local work is never discarded.** These are the user's working repos: dirty trees, unpushed commits, and non-default branches must all survive the sync. The only commands that change a repo are the `fetch`, `stash push`, `checkout`, and `merge --ff-only` below (plus `stash apply` to undo a stash). Never run `reset`, `clean`, `restore`, `checkout -- <path>`, `checkout -f`, `stash pop`/`drop`/`clear`, `branch -D`/`-f`, `push`, or any non-fast-forward update of a local branch. When a precondition fails, leave the repo exactly as found and mark it `review-only`; the review reads from `origin/$DEFAULT`, so the report loses nothing.
 
 1. Resolve the default branch from GitHub, the source of truth:
    `DEFAULT=$(gh repo view <owner/repo> --json defaultBranchRef -q .defaultBranchRef.name)`. If that fails or is empty, fall back to `git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@'`. If both fail, mark the repo `incomplete (no default branch)` and skip to the next repo.
-2. `git fetch --prune origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT"`. If fetch fails, mark `stale (fetch failed)`, skip steps 3–5, and review the existing `origin/$DEFAULT` with that caveat carried into the report. If `origin/$DEFAULT` does not exist locally either, mark `incomplete (no default ref)`: skip git collection for this repo but still collect and review its PRs.
-3. Record the current branch and `git rev-parse HEAD`. If `git status --porcelain` is non-empty, run
-   `git stash push -u -m "source-status $(date +%F) from <branch>"`. Then confirm both: the stash command exited 0, and `git status --porcelain` is now empty. Record the stash ref (`git rev-parse stash@{0}`). If either check fails (unmerged files, submodule changes), mark `review-only (stash failed)` and skip steps 4–5. Ignored files are not stashed and do not block checkout.
-4. `git checkout --no-overwrite-ignore "$DEFAULT"`. The flag stops checkout from clobbering ignored files (`.env`, local config) that `stash -u` left in place. If checkout fails (an ignored-file collision, or the branch is checked out in a linked worktree), mark `review-only (<reason>)` and **skip step 5**.
-5. Confirm `git branch --show-current` equals `$DEFAULT`, then `git pull --ff-only origin "$DEFAULT"`. If the pull fails (diverged local branch), leave the local branch untouched and mark `review-only (pull failed)`.
+2. `git fetch --prune origin "+refs/heads/$DEFAULT:refs/remotes/origin/$DEFAULT"`. This only moves the remote-tracking ref. If fetch fails, mark `stale (fetch failed)`, skip steps 3–6, and review the existing `origin/$DEFAULT` with that caveat carried into the report. If `origin/$DEFAULT` does not exist locally either, mark `incomplete (no default ref)`: skip git collection for this repo but still collect and review its PRs.
+3. Preconditions. Record `BRANCH=$(git symbolic-ref -q --short HEAD)` and `git rev-parse HEAD`. Leave the repo untouched and skip steps 4–6 when:
+   - `BRANCH` is empty: HEAD is detached, and switching away would orphan any commits reachable only from it → `review-only (detached HEAD)`;
+   - any of `MERGE_HEAD`, `rebase-merge`, `rebase-apply`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG` exists under `git rev-parse --git-path <name>` → `review-only (<operation> in progress)`.
+4. If `git status --porcelain` is non-empty, run
+   `git stash push -u -m "source-status $(date +%F) from $BRANCH"`. Proceed only when all three hold: the command exited 0, `git status --porcelain` is now empty, and `git stash list -1 --format=%s` ends with that message. Record the stash ref (`git rev-parse stash@{0}`). If a check fails (unmerged files, submodule changes), mark `review-only (stash failed)` and skip steps 5–6; if a stash was created, restore it as in step 5. Ignored files are not stashed and do not block checkout.
+5. `git checkout --no-overwrite-ignore "$DEFAULT"`. The flag stops checkout from clobbering ignored files (`.env`, local config) that `stash -u` left in place. If checkout fails (an ignored-file collision, or the branch is checked out in a linked worktree), mark `review-only (<reason>)` and skip step 6; in that failure case only, if this repo was stashed in step 4 and `git branch --show-current` still equals `$BRANCH`, put the work back with `git stash apply --index <stash ref>`. After a successful checkout, never apply the stash: it belongs to `$BRANCH`, not `$DEFAULT`. Keep the stash entry either way, and report it; if the apply fails, say so and leave the stash for the user.
+6. Confirm `git branch --show-current` equals `$DEFAULT`, then `git merge --ff-only --no-overwrite-ignore "refs/remotes/origin/$DEFAULT"`. A local default branch that is ahead (unpushed commits) stays as it is; one that has diverged makes the merge fail, so leave it untouched and mark `review-only (diverged from origin)`.
 
 Pin the reviewed tip: `TIP=$(git rev-parse "origin/$DEFAULT")`. Every later step reads from `$TIP`, never from the working directory: a `review-only` repo may still have a feature branch checked out, and a local default branch may carry unpushed commits. A sync failure never removes a repo from review.
 
-Done when: every in-scope repo has a sync state and a pinned `$TIP`.
+Done when: every in-scope repo has a sync state and a pinned `$TIP`, and every stash created is recorded with its repo, original branch, and ref.
 
 ## Step 3 — Collect commits and PRs
 
@@ -71,7 +76,7 @@ Classify each repo on two independent axes:
 
 Active repos go to Step 4 even when incomplete: review what was collected. Inactive repos are dropped from every later step and from the report. Incomplete and unknown repos get one phrase each in the report's coverage note.
 
-Done when: every in-scope repo is active, inactive, or incomplete, and each active repo has its commit list and PR list.
+Done when: every in-scope repo is `active`, `inactive`, or `unknown`, every repo with a failed query is flagged `incomplete`, and each active repo has its commit list and PR list.
 
 ## Step 4 — Review active repos (parallel subagents)
 
@@ -80,7 +85,7 @@ Dispatch one `general-purpose` subagent per active repo, **all in one message** 
 Review brief for each subagent:
 
 - Read every in-window commit's diff with `git show --diff-merges=first-parent <sha>`. Plain `git show` on a merge shows a combined diff that hides most of the merged change.
-- Pin every in-window PR before reading it: `git fetch origin "pull/<n>/head:refs/source-status/pr-<n>"`, then `PR_TIP=$(git rev-parse refs/source-status/pr-<n>)`. If `PR_TIP` differs from the Step 3 `headRefOid`, the PR moved; review `PR_TIP` and say so. Read an open PR's diff as `git diff "$TIP"..."$PR_TIP"`; read a merged PR through its `mergeCommit` with `git show --diff-merges=first-parent`. Delete the `refs/source-status/*` refs when done (`git for-each-ref --format='%(refname)' refs/source-status | xargs -r -n1 git update-ref -d`).
+- Pin every in-window PR before reading it: `git fetch origin "+refs/pull/<n>/head:refs/source-status/pr-<n>"`, then `PR_TIP=$(git rev-parse refs/source-status/pr-<n>)`. If `PR_TIP` differs from the Step 3 `headRefOid`, the PR moved; review `PR_TIP` and say so. Read an open PR's diff as `git diff "$TIP"..."$PR_TIP"`; read a merged PR through its `mergeCommit` with `git show --diff-merges=first-parent`. These scratch refs are the only refs a subagent writes. Delete them when done (`git for-each-ref --format='%(refname)' refs/source-status | xargs -r -n1 git update-ref -d`).
 - Read every in-window PR's description, reviews, and conversation via `gh pr view <n> --repo <owner/repo> --json body,reviews,comments`; inline review threads via `gh api --paginate repos/<owner/repo>/pulls/<n>/comments`.
 - Read surrounding code from the pinned trees only: `git show "$TIP":<path>` for the default branch, `git show "$PR_TIP":<path>` for an open PR. Read the repo's `CLAUDE.md`/ADRs the same way when a judgment depends on them. For open PRs, check compatibility with current `$TIP`.
 - Judge as a principal engineer across five lenses: **engineering** (reliability, operability, security, performance, dependencies), **architecture** (boundaries, coupling, data flow, contracts between services), **design** (API and schema shape, migrations, backward compatibility), **coding** (correctness, error handling, concurrency, readability), **testing** (missing or weakened tests, coverage of the changed behavior, red CI via `gh pr checks <n> --repo <owner/repo>`).
@@ -124,7 +129,7 @@ Rules:
 
 ## Step 6 — Adversarial verification
 
-Dispatch two `general-purpose` subagents in one message. Each gets the draft, the full Step 4 finding list (including findings cut from the draft for length), the repo dirs with their `$TIP`, `$SINCE`, `$NOW`, the Step 1 skip list, and the Step 3 classifications. An omission already in the cut list is not new; it stays in chat unless it outranks a retained line. Each acts as an **adversary**: its job is to break the draft, not approve it.
+Dispatch two `general-purpose` subagents in one message. Each gets the draft, the full Step 4 finding list (including findings cut from the draft for length), the repo dirs with their `$TIP`, `$SINCE`, `$NOW`, the Step 1 skip list, and the Step 3 classifications. An omission already in the cut list is not new; it stays in chat unless it outranks a retained line. Each acts as an **adversary**: its job is to break the draft, not approve it. Both are read-only, under the same rules as Step 4 subagents.
 
 - **Accuracy adversary**: for every claim and finding, re-check the cited sha/PR/path:line against the actual diff. Return each item as `CONFIRMED`, `WRONG (<correction>)`, or `OVERSTATED (<why>)`. Also flag any finding whose severity does not clear the critical bar in Step 4.
 - **Omission adversary**: re-run the Step 3 queries independently for **every** in-scope repo, including inactive and incomplete ones, and confirm each classification. Then skim every in-window commit and PR and return anything that clears the critical bar but is missing from the draft, with evidence. Also flag any repo in the draft with no in-window activity, and any top-level directory wrongly skipped in Step 1.
@@ -152,4 +157,4 @@ Reply with:
 
 - the report path and its word count;
 - every finding, one line each, including any `high` findings cut from the file;
-- housekeeping the user must know about: every stash created (repo, original branch, stash ref, message), every repo left `review-only`, `stale`, or `incomplete`, and every skipped directory with its reason.
+- housekeeping the user must know about: every stash created (repo, original branch, stash ref, message, and whether it was re-applied after a failed checkout), every repo left `review-only`, `stale`, or `incomplete`, and every skipped directory with its reason.

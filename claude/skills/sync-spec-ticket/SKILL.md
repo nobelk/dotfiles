@@ -1,6 +1,7 @@
 ---
 name: sync-spec-ticket
-description: Apply a requested change to a feature's spec files under specs/<name>/ AND to the associated Jira ticket's title and description, keeping the two surfaces in sync (either side can lead). Takes the spec target (a branch name, a specs/<name>/ path, or the current branch) plus a description of the change, and optionally the Jira ticket key. Edits are codex-reviewed and the single Jira update is pushed only after explicit confirmation. Invoke manually when a spec changed and its tracking ticket must follow (or vice versa).
+description: Applies one requested change to a feature's spec files under specs/ and to its Jira ticket's title and description, keeping the two in sync (either side can lead). Takes the spec target (branch name, specs directory, or current branch), the change, and an optional ticket key. Has codex review the edits and pushes the single Jira update only after explicit confirmation. Use when a spec changed and its tracking ticket must follow, or a ticket changed and the spec must follow.
+argument-hint: "[spec-target] <change description> [TICKET-KEY]"
 ---
 
 # Sync spec ↔ ticket skill
@@ -18,16 +19,16 @@ If the repo has a `CLAUDE.md`, read it first — it is authoritative for convent
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent` tool), and keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate): the spec-target resolution (Step 0), the change-intent gathering (Step 1), every `AskUserQuestion` gate (ticket confirmation in Step 2, ambiguous/scope-changing fixes in Step 6, the final Jira-write confirmation in Step 7), **writing the spec files** (Step 3 and the Step 6 corrections — they depend tightly on the gathered intent), **the `editJiraIssue` write** (Step 7 — an outward-facing, hard-to-reverse action), and the Step 8 report. Subagents cannot prompt the user and must never push to Jira.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose output out of the main context):
-  - **Step 5** — launch the `/codex:adversarial-review --background` review of the spec diff plus the drafted ticket text, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — run the codex adversarial review of the spec diff plus the drafted ticket text and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
   - **Step 6** — split the findings into disjoint batches (~3–5 each; contradictory findings share a batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 1 intent and the project rules and adjudicating its findings against the actual changed files, returning its slice of the accept/reject/defer disposition table with evidence. The main loop merges the slices, applies the edits, and owns any follow-up question.
 
 Give each subagent a self-contained prompt: the exact command(s) to run, the spec file paths and ticket draft, and the precise shape of the result to return.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Here the delegated review chain is serial between steps (Step 5 codex run → Step 6 adjudication), but **within** Step 6 the adjudication batches fan out in parallel; and the Step 1 reads (the spec files plus `roadmap.md` / `mission.md` / `tech-stack.md` / `CLAUDE.md`) are independent — fan them out in one message. The `editJiraIssue` write is always a single, serialized, user-confirmed action.
+**Parallelize independent work**: dispatch independent subagents as multiple `Agent` calls in a single message, and issue the independent Step 1 reads together. The Step 5 → Step 6 chain is serial; the `editJiraIssue` write is a single, user-confirmed action.
 
 ## Step 0 — Resolve the spec target
 
@@ -52,48 +53,55 @@ Decide the change's **origin**: spec-led (specs are the source of truth; the tic
 
 Resolve `<ticket-key>` in this order, and **always confirm before editing**:
 
-1. **Input key given** — fetch it (`mcp__claude_ai_Atlassian__getJiraIssue`) and confirm the summary matches this spec via AskUserQuestion (show the current summary).
-2. **No key** — search Jira for candidates (`mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql`) using terms from the spec's `requirements.md` title/context and the feature `<name>`. Present the top matches as AskUserQuestion options (issue key + summary each); include an "Enter a different key" path. Use `getAccessibleAtlassianResources` / `getVisibleJiraProjects` first if the cloud id or project is unknown.
+1. **Input key given** — fetch it (`getJiraIssue`) and confirm the summary matches this spec via AskUserQuestion (show the current summary).
+2. **No key** — search Jira for candidates (`searchJiraIssuesUsingJql`) using terms from the spec's `requirements.md` title/context and the feature `<name>`. Present the top matches as AskUserQuestion options (issue key + summary each); include an "Enter a different key" path. Use `getAccessibleAtlassianResources` / `getVisibleJiraProjects` first if the cloud id or project is unknown.
 3. **No confident match** — ask the user for the ticket key directly. Do not invent or guess a key.
 
-Once confirmed, fetch the ticket's **current** title and description and record them — they are the before-state for the Step 7 diff. If the user explicitly says no ticket exists yet, stop and ask whether to create one (`createJiraIssue`) or skip the Jira side entirely; do not create tickets unprompted.
+Once confirmed, fetch the ticket's **current** title and description twice, with `responseContentFormat: "markdown"` (for reading and the user-facing diff) and with `"adf"`, and record both. Request the `updated` field in both reads; if the two `updated` values differ, the ticket changed between reads, so repeat both. The summary plus raw ADF description are the canonical before-state for Step 4's format choice and Step 7's concurrency check. If the user explicitly says no ticket exists yet, stop and ask whether to create one (`createJiraIssue`) or skip the Jira side entirely; do not create tickets unprompted.
 
-> The MCP Atlassian tools are deferred — load their schemas with `ToolSearch` (e.g. `select:mcp__claude_ai_Atlassian__getJiraIssue,mcp__claude_ai_Atlassian__editJiraIssue,mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql,mcp__claude_ai_Atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian__getVisibleJiraProjects`) before calling them — including the accessible-resources and visible-projects lookups Step 2 uses when the cloud id or project is unknown. If the Atlassian MCP server is not connected or auth fails, tell the user and use AskUserQuestion to offer alternatives (retry after they connect it, proceed with the spec edits only, or abort) — never silently skip the Jira side.
+> The Atlassian MCP tools are deferred and may be exposed as `mcp__claude_ai_Atlassian__<tool>` or `mcp__plugin_engineering_atlassian__<tool>`. Load the schemas of `getJiraIssue`, `editJiraIssue`, `searchJiraIssuesUsingJql`, `getAccessibleAtlassianResources`, and `getVisibleJiraProjects` (plus `createJiraIssue` only if the user asks to create a ticket) with `ToolSearch` (e.g. `+atlassian getJiraIssue`) before calling them. Every call needs a `cloudId` from `getAccessibleAtlassianResources`. If no Atlassian MCP server is connected or auth fails, tell the user and use AskUserQuestion to offer alternatives (retry after they connect it, proceed with the spec edits only, or abort) — never silently skip the Jira side.
 
 ## Step 3 — Apply the spec edits
 
 Edit the resolved spec files to implement the Step 1 intent (skip if the change is purely ticket-led and the specs already match — note that). Keep edits minimal and consistent with the surrounding doc style. Do **not** commit. Preserve the cross-file consistency the specs already maintain (scope items in `plan.md` mirrored in `requirements.md`, validation criteria that actually verify the requirements).
 
-Capture the spec diff (`git diff -- specs/<name>/`) — it is the review subject and the basis for the ticket draft.
+Capture the spec diff (`git diff -- specs/<name>/`, plus `git status --short -- specs/<name>/` for any new, untracked spec file) — it is the review subject and the basis for the ticket draft.
 
 ## Step 4 — Draft the matching Jira title and description
 
 From the now-updated specs (spec-led) or from the Step 1 ticket revision (ticket-led), draft the **new** ticket title and description:
 
 - **Title** — concise, reflecting the feature/phase as the specs now describe it.
-- **Description** — mirror the spec's context, scope (in/out), key decisions, and the "done when" / validation signal. Match the format the ticket already uses (note whether the instance expects Atlassian Document Format vs. wiki markup vs. plain text — preserve whatever `getJiraIssue` returned).
+- **Description** — mirror the spec's context, scope (in/out), key decisions, and the "done when" / validation signal. Keep the ticket's existing section structure. Decide the format from the raw ADF, not the Markdown read (Markdown conversion can already have dropped mentions, status lozenges, panels, and media): use the Step 2 ADF snapshot. If it contains only paragraphs, headings, lists, code blocks, and plain or marked text, draft in Markdown; otherwise draft the edit in ADF, keeping every node you do not change.
 
 This is a **draft only** — hold it in the working notes. Nothing is pushed to Jira until Step 7. Drafting before review (rather than pushing now) keeps the live ticket out of a half-corrected state if codex surfaces a real problem.
 
-## Step 5 — Codex review of the changes via `/codex:adversarial-review --background`
+## Step 5 — Codex adversarial review of the changes
 
-Get an independent second-model review of both surfaces together through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the spec edits *and* the drafted Jira ticket text (which is not in git at all) for mutual consistency, neither of which `/codex:review` can carry. The spec edits are the working-tree diff the review scopes over; the focus text adds the drafted ticket text. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Delegate to a `general-purpose` subagent that launches it from the repo root:
+Get an independent second-model review of both surfaces together. Use codex's **adversarial-review** mode rather than the native review because it accepts **custom focus text** — needed to carry the drafted Jira ticket text (which is not in git) and to judge spec↔ticket consistency. The spec edits are the working-tree diff the review scopes over.
+
+The `/codex:*` slash commands set `disable-model-invocation: true`, so neither you nor a subagent can call them. The Step 5 subagent drives the companion script they wrap, from the repo root:
 
 ```bash
-/codex:adversarial-review --background "<focus>"
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"   # run_in_background: true
+node "<companion>" status                                       # read the new job id
+node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded wait; repeat until finished
+node "<companion>" result <job-id>                              # findings
 ```
 
-With `<focus>`:
+Pass `<focus>` as its own quoted argument so quotes inside the ticket text survive:
 
 > Review these changed planning documents: specs/<name>/*.md (focus on the working-tree diff). Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md if present — the edits must stay consistent with them. Separately, here is the drafted Jira ticket title and description that must match the updated specs: "<title>" / "<description>". Review for: internal contradictions introduced by the edit, scope items now in one file but missing from the others, validation criteria that no longer verify the stated requirements, the drafted ticket text disagreeing with the updated specs (missing scope, wrong done-criterion, stale title), and conflicts with the roadmap/mission/tech-stack. For each finding output a numbered item with: surface (spec file:section or ticket-title/ticket-description), the issue, and the suggested change. Output findings only — do not rewrite anything.
 
-Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-sync-<name>.md`) so Step 6 is auditable. Do **not** commit it.
-- If `codex` is unavailable, the launch fails, or `/codex:status` reports the job errored, tell the user and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or proceed without the codex review).
+- Enforce a 10-minute deadline. On deadline or a failed job, run `node "<companion>" cancel <job-id>` and treat the review as failed.
+- If no companion path resolves (plugin not installed), run `timeout -k 10 600 codex exec --sandbox read-only -o <scratch-file> "<focus>"` instead.
+- Capture the findings verbatim to a scratch file (e.g. `/tmp/codex-sync-<name>.md`) so Step 6 is auditable. Do **not** commit it.
+- If `codex` is not on `PATH` or the review fails, tell the user and use AskUserQuestion to offer alternatives (retry, substitute a self-review pass, or proceed without the codex review).
 
 ## Step 6 — Validate the findings and fold them into both surfaces
 
-Do **not** apply codex's comments blindly — they are hypotheses to adjudicate. Delegate the adjudication to a `general-purpose` subagent, then act on its table in the main loop. For each numbered finding:
+Do **not** apply codex's comments blindly — they are hypotheses to adjudicate. Delegate the adjudication to parallel `general-purpose` subagents (one per batch, as described under Subagent delegation), then merge their tables and act on them in the main loop. For each numbered finding:
 
 1. Re-read the cited spec passage or ticket-draft line and confirm the issue is real.
 2. Check it against the Step 1 intent — a finding that contradicts a change the user explicitly asked for is **rejected**, however plausible.
@@ -109,7 +117,7 @@ Apply accepted findings: edit the spec files for spec-surface findings, and revi
 
 Show the user the **before → after** of the ticket title and description (the before-state from Step 2, the final draft from Steps 4/6) and confirm via `AskUserQuestion` before writing — this is an outward-facing change to a live system. Offer: push the update, edit the draft further, or skip the Jira write (leave only the spec edits).
 
-On approval, push exactly one update with `mcp__claude_ai_Atlassian__editJiraIssue` (load its schema via `ToolSearch` first). Use the cloud id and issue key from Step 2 and the format the instance expects. Pushing once, after review and confirmation, avoids churning the ticket's history with intermediate states. If the write fails, report the error and the intended payload — do not retry blindly or leave the user thinking it succeeded.
+On approval, re-fetch the summary and the ADF description first. If either differs from the Step 2 canonical before-state (compare ADF to ADF, never to the Markdown read), someone edited the ticket meanwhile: merge their change into the draft and confirm again. Then push exactly one update with `editJiraIssue`: `fields: {summary, description}`, the cloud id and issue key from Step 2, and `contentFormat` matching the draft (`markdown` or `adf`). Pushing once, after review and confirmation, avoids churning the ticket's history with intermediate states. If the write fails, report the error and the intended payload — do not retry blindly or leave the user thinking it succeeded.
 
 ## Step 8 — Report
 

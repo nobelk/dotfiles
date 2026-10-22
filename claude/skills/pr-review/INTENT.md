@@ -8,8 +8,8 @@ The step is done when every source below has either been compared against the di
 
 - **Find the key.** Look for keys matching `[A-Z][A-Z0-9]+-\d+` in the head branch name, the title, the body, and the commit messages, in that order. The first key found in the branch name, or else the first found anywhere, is **primary**. Fetch every distinct key.
 - **Fetch it.** Load the Atlassian tools with `ToolSearch` (`select:mcp__claude_ai_Atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian__getJiraIssue`). Resolve the `cloudId`, then fetch each ticket. Capture the summary, description, acceptance criteria (whether a field or a section of the description), issue type, and status.
-- **If the fetch fails** (tools not connected, auth, not found), record `jira: unavailable (<error>)` and compare against the remaining sources. Use only ticket content you actually fetched.
-- **If there is no key**, check whether the repo links tickets: `gh pr list --repo github.com/<owner>/<repo> --state merged --limit 20 --json title,headRefName`. When any of those carry a key, the missing link is a finding; otherwise record `jira: not used in this repo`.
+- **If the fetch fails** (tools not connected, auth, not found), record status `unavailable` with the error and compare against the remaining sources. Use only ticket content you actually fetched.
+- **If there is no key**, check whether the repo links tickets: `gh pr list --repo github.com/<owner>/<repo> --state merged --limit 20 --json title,headRefName`. When any of those carry a key, record status `missing` and report the missing link as a finding; otherwise record status `none-in-repo`.
 
 ## 2. Spec
 

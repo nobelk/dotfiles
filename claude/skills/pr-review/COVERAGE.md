@@ -40,11 +40,11 @@ Run unit tests only: skip integration build tags, docker-compose, and live servi
 
 ```bash
 env -i PATH="$PATH" HOME="$WT/.home" LANG=C.UTF-8 TMPDIR="$WT/.tmp" \
-  GOPATH="$(go env GOPATH 2>/dev/null)" GOMODCACHE="$(go env GOMODCACHE 2>/dev/null)" \
-  <command>
+  GOPATH="$(go env GOPATH 2>/dev/null)" GOMODCACHE="$(go env GOMODCACHE 2>/dev/null)" GOCACHE="$(go env GOCACHE 2>/dev/null)" \
+  timeout -k 10 600 <command>
 ```
 
-This keeps `GH_TOKEN`, cloud credentials, and `SSH_AUTH_SOCK` away from the PR's code, and moves `HOME` so tools can't reach `~/.config` or `~/.ssh` through it. Add back only the variables the repo's documented test setup names. This limits exposure but is not a sandbox, which is why the trust check in step 1 comes first. Timebox the whole measurement to **15 minutes**. If the build or tests fail, or time runs out, return `failed` with the command and the last 30 lines of output. A failing test suite is reported to the user, not posted as a coverage finding.
+This keeps `GH_TOKEN`, cloud credentials, and `SSH_AUTH_SOCK` away from the PR's code, and moves `HOME` so tools can't reach `~/.config` or `~/.ssh` through it. Add back only the variables the repo's documented test setup names. This limits exposure but is not a sandbox, which is why the trust check in step 1 comes first. Timebox the whole measurement to **15 minutes**: each command gets its own `timeout -k 10 600` (the Bash tool's foreground limit is 10 minutes, so set the tool timeout to match), and stop starting new commands once 15 minutes have passed. If the build or tests fail, or time runs out, return `failed` with the command and the last 30 lines of output. A failing test suite is reported to the user, not posted as a coverage finding.
 
 ## 4. Map uncovered lines to the change
 

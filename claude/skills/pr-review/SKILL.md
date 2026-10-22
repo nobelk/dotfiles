@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Work through a GitHub repo's open, ready-for-review PRs as the active gh login, skipping drafts and my own PRs. For PRs I already commented on, checks each comment is addressed or resolved on the latest code and that CI passes, then approves. For PRs I haven't reviewed, and for code pushed after my feedback, runs `/code-review high`, a changed-line unit-test coverage check (skipped for Ansible and Flutter/Dart), and a check against the Jira ticket, PR title and description, and spec, then posts the findings as inline comments. Asks before posting and before approving; `--yes` posts without asking, and `--dry-run` only reports. Takes `owner/repo` or a repo URL (inferred from the cwd's origin if omitted). Invoke manually, or from a scheduled job with `--yes`, when a repo's review queue needs working through.
+description: Works through a GitHub repo's open, ready-for-review PR queue as the active gh login, skipping drafts and the user's own PRs. Re-checks PRs the user already reviewed (feedback addressed, CI green) and approves them; reviews new PRs and new pushes with /code-review, changed-line coverage, and Jira/spec intent checks, then posts inline comments. Asks before posting or approving; --yes for scheduled runs, --dry-run to only report. Use when a repo's PR review queue needs working through.
 argument-hint: '[owner/repo | https://github.com/owner/repo] [--me <login>[,<login>]] [--yes | --dry-run]'
 ---
 
@@ -33,7 +33,7 @@ Keep orchestration in the main loop; run the expensive, self-contained steps in 
   - Step 4 coverage and intent checks: one coverage subagent and one intent subagent per review target. Keep at most **3 coverage subagents** running at once, because they build and run test suites.
   - These run *while* the main loop is doing the serial `/code-review` runs. A C PR's delta checks depend on its Step 3 result, so they start only after it returns.
 - `/code-review` runs from the main loop through the `Skill` tool. It starts its own background subagent, and running it inside another subagent is unsupported. Run one PR at a time and wait for each to finish so findings never get mixed up.
-- Every subagent prompt is self-contained: the exact commands with explicit `<owner>/<repo>` paths, the clone path, the SHAs, the items to check, and the exact result shape to return. Coverage and intent subagents are told to read and follow `~/.claude/skills/pr-review/COVERAGE.md` or `~/.claude/skills/pr-review/INTENT.md`. Subagents share no state. Apart from the coverage subagent's own scratch worktree, they change neither the working tree nor GitHub.
+- Every subagent prompt is self-contained: the exact commands with explicit `<owner>/<repo>` paths, the clone path, the SHAs, the items to check, and the exact result shape to return. Coverage and intent subagents are told to read and follow `${CLAUDE_SKILL_DIR}/COVERAGE.md` or `${CLAUDE_SKILL_DIR}/INTENT.md`. Subagents share no state. Apart from the coverage subagent's own scratch worktree, they change neither the working tree nor GitHub.
 
 ## Step 0 — Resolve inputs, identity, and clone
 
@@ -42,7 +42,7 @@ Keep orchestration in the main loop; run the expensive, self-contained steps in 
 - **Identity**: `ME=$(gh api --hostname github.com user --jq .login)` is the **active login**. It is the only account that posts and approves, and the only one whose feedback drives Step 3 and Gate 2. The skill's owner is **`nobelk`**: PRs authored by `nobelk` are always treated as mine, whatever the active login. If `ME` isn't `nobelk` (case-insensitive), interactive mode asks whether to continue as `ME`. Unattended modes stop, so a scheduled run can never post as another account. `--me a,b` adds **alias logins**. These are used only to recognise my own PRs and for reporting: feedback an alias left is listed but never auto-approved, because approving from the active login doesn't clear another account's CHANGES_REQUESTED. Compare logins case-insensitively. Immediately before each POST in Gates 1 and 2, re-run the same `gh api --hostname github.com user` call. If the login differs from `ME`, abort the run, so a mid-run `GH_TOKEN`/`GH_HOST` change or `gh auth switch` can never post as another account.
 - **`gh` invocation rule**: pin the host on every call so `GH_HOST` cannot redirect a read or a write. `gh pr ...` and `gh repo ...` take `--repo github.com/<owner>/<repo>`. `gh api` has no `--repo` flag, so it takes `--hostname github.com`, with paths spelling out `repos/<owner>/<repo>/...`. Every example below follows this.
 - **Working clone**: `/code-review` needs the cwd to be a clone of the target repo (it takes a ref range, not `owner/repo#n` or a URL). If the cwd's `origin` URL is a `github.com` URL for `<owner>/<repo>`, run `git fetch origin` and use it. Otherwise clone once into the scratchpad with `gh repo clone github.com/<owner>/<repo> <scratchpad>/pr-review/<owner>__<repo> -- --filter=blob:none` and `cd` there. Never check out branches in a clone the user works in. Fetch PR heads into `refs/remotes/origin/pr-<n>` and read them with `git show`. Coverage runs use detached worktrees under the scratchpad (see `COVERAGE.md`).
-- **Ledger**: `~/.local/state/pr-review/<owner>__<repo>.json` (create the directory when missing) maps PR number → `{headSha, outcome, at}`, where `outcome` is `clean` or `posted`. It only saves the Step 4 checks from running twice on the same head. It never replaces the fresh CI and eligibility evaluation in Gate 2. If the file won't parse, move it aside to `<file>.corrupt-<timestamp>`, treat the ledger as empty, and say so in the summary.
+- **Ledger**: `~/.local/state/pr-review/<owner>__<repo>.json` (create the directory when missing) maps PR number → `{headSha, outcome, at}`, where `outcome` is `clean` or `posted`. It only saves the Step 4 checks from running twice on the same head. It never replaces the fresh CI and eligibility evaluation in Gate 2. If the file won't parse, treat the ledger as empty and say so in the summary; outside `--dry-run`, also move it aside to `<file>.corrupt-<timestamp>`.
 
 ## Step 1 — Inventory
 
@@ -56,7 +56,7 @@ Set these aside before any deep fetch, and only count them in the summary:
 
 Then fan out **one subagent per remaining PR** in a single message. Each runs:
 
-- **PR facts**: `gh api --hostname github.com repos/<owner>/<repo>/pulls/<n> --jq '{author_association, head_repo: .head.repo.full_name}'`.
+- **PR facts**: `gh api --hostname github.com repos/<owner>/<repo>/pulls/<n> --jq '{author_association, head_repo: .head.repo.full_name, baseRefOid: .base.sha}'`. `baseRefOid` is the base commit GitHub recorded at the PR's last push, not the live base-branch tip; it is only compared between fetches of the same PR.
 - **Reviews**: `gh api --hostname github.com repos/<owner>/<repo>/pulls/<n>/reviews --paginate --jq '.[] | {login: .user.login, state, submitted_at, commit_id, body, html_url}'`. Drop `PENDING` reviews (not submitted; `submitted_at` is null) and `DISMISSED` reviews. From the rest, compute per login:
   - `latestEvent`: the most recent submitted review of any state;
   - `latestOpinion`: the most recent `APPROVED` or `CHANGES_REQUESTED`;
@@ -78,7 +78,7 @@ Then fan out **one subagent per remaining PR** in a single message. Each runs:
   `query($id:ID!,$cursor:String){ node(id:$id){ ... on PullRequestReviewThread { comments(first:100, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ author{ login } body createdAt url diffHunk } } } } }`
   until `hasNextPage` is false. `--paginate` does not walk nested connections, so do this by hand.
 - **Issue comments by the identity set**: `gh api --hostname github.com repos/<owner>/<repo>/issues/<n>/comments --paginate --jq '.[] | select((.user.login|ascii_downcase) as $l | $l == "<me, lowercased>" or $l == "<alias, lowercased>" ...) | {login: .user.login, body, created_at, html_url}'`. `gh api --jq` has no `--arg`, so write the lowercased logins into the filter.
-- **Head, base, commits and CI**: `gh pr view <n> --repo github.com/<owner>/<repo> --json headRefOid,baseRefName,baseRefOid,isDraft,state,mergeable,mergeStateStatus,statusCheckRollup,commits`. Normalize CI from `statusCheckRollup` by item type:
+- **Head, base, commits and CI**: `gh pr view <n> --repo github.com/<owner>/<repo> --json headRefOid,baseRefName,isDraft,state,mergeable,mergeStateStatus,statusCheckRollup,commits`. Normalize CI from `statusCheckRollup` by item type:
   - A `CheckRun` is **fail** when `conclusion` is one of `FAILURE`, `ERROR`, `CANCELLED`, `TIMED_OUT`, `ACTION_REQUIRED`, `STARTUP_FAILURE`. It is **pending** when `status` is not `COMPLETED` (`QUEUED`, `IN_PROGRESS`, `PENDING`, `REQUESTED`, `WAITING`) or `conclusion` is `STALE`. Otherwise it passes (`SUCCESS`, `NEUTRAL`, `SKIPPED`).
   - A legacy `StatusContext` has only `state`: `FAILURE`/`ERROR` → fail, `PENDING`/`EXPECTED` → pending, `SUCCESS` → pass.
   - Aggregate: any fail → **fail**; otherwise any pending → **pending**; otherwise a non-empty rollup → **pass**; an empty rollup → **none**.
@@ -147,17 +147,19 @@ It reads the head code with `git show origin/pr-<n>:<path>` and judges each of `
 
 **Delta since my feedback.**
 - If `feedbackBaseSha` is null, the unreviewed delta is the whole PR.
-- Otherwise run `git merge-base --is-ancestor <feedbackBaseSha> <headRefOid>`. If it is false, the history was rewritten: report **rewritten**, which blocks approval and sends the whole PR back through the Step 4 checks as a B PR would go. If it is true, the **unreviewed delta** is the full change set `<feedbackBaseSha>..<headRefOid>`; list its files. Feedback on one line of a file doesn't make the rest of that file reviewed.
+- Otherwise run `git merge-base --is-ancestor <feedbackBaseSha> <headRefOid>`. If it exits non-zero (1 = not an ancestor; 128 = the old commit is no longer fetchable, typical after a force-push), the history was rewritten: report **rewritten**, which blocks approval and sends the whole PR back through the Step 4 checks as a B PR would go. If it is true, the **unreviewed delta** is the full change set `<feedbackBaseSha>..<headRefOid>`; list its files. Feedback on one line of a file doesn't make the rest of that file reviewed.
 
 Return: `{number, headRefOid, items:[{ref, path, line, classification, evidence, resolvedBy?}], unreviewedDelta:[files] | "rewritten", othersUnresolvedThreads, ci}`.
 
 ## Step 4 — Review checks
 
 Each **review target** is a PR plus an immutable range:
-- **B PRs**: fetch the head (`git fetch --force origin refs/pull/<n>/head:refs/remotes/origin/pr-<n>`, and check it equals `headRefOid`) and the base (`git fetch --force origin <baseRefName>:refs/remotes/origin/<baseRefName>`, and check `git rev-parse origin/<baseRefName>` equals `baseRefOid`, or else skip the PR this run). The range is `MB...headRefOid`, where `MB=$(git merge-base <baseRefOid> <headRefOid>)`.
+- **B PRs**: fetch the head (`git fetch --force origin refs/pull/<n>/head:refs/remotes/origin/pr-<n>`, and check it equals `headRefOid`) and the base branch (`git fetch --force origin <baseRefName>:refs/remotes/origin/<baseRefName>`; if it fails, skip the PR this run). The range is `MB...headRefOid`, where `MB=$(git merge-base origin/<baseRefName> <headRefOid>)`, which matches the diff GitHub shows. Record `MB` as a full SHA; the range never moves after this.
 - **C PRs with a non-empty unreviewed delta** (after Step 3 returns): the range is `feedbackBaseSha...headRefOid`. A null `feedbackBaseSha` or rewritten history uses the whole-PR range, as for B.
 
 The range is immutable, so findings are bound to `headRefOid` by construction. Always pass full SHAs. If a queued PR's head moves before its checks run, skip it for this run and report it.
+
+If more than 25 targets are queued, ask with `AskUserQuestion` before starting, offering to cap them by most recently updated. The unattended default is to take the 25 most recently updated and list the rest as deferred.
 
 Run three checks on each target:
 
@@ -171,8 +173,6 @@ Launch every B target's coverage and intent subagents together with the Step 3 s
 - the intent check had its ticket (`fetched` or `none-in-repo`).
 
 A target whose coverage was skipped for an untrusted author, whose coverage failed, or whose Jira fetch was unavailable is **partial**. It can still have findings posted, but it is never clean. For a B PR, clean makes it a **clean-review** Gate 2 candidate. For a C delta, clean counts as reviewed for Gate 2, and any finding makes the PR not approvable this run.
-
-If more than 25 targets are queued, ask with `AskUserQuestion` before starting, offering to cap them by most recently updated. The unattended default is to take the 25 most recently updated and list the rest as deferred.
 
 ## Step 5 — Gate 1: post findings as inline review comments
 
@@ -192,7 +192,7 @@ Build the **exact payload for each PR before asking**, bound to the reviewed `he
 - **`--dry-run`**: post nothing.
 - If there is nothing to post, say so and skip the gate.
 
-After approval, for each PR still in scope, fetch `headRefOid`, `baseRefName`, `baseRefOid`, `state` and `isDraft` again. **If the head differs from the payload's SHA, the base ref or SHA differs from the Step 1 record, or the PR is no longer open or has become a draft, skip it this run and report it.** Never re-review and post without a fresh gate. Otherwise, run the voice scan from *Posting voice*, then:
+After approval, for each PR still in scope, fetch the head, base, state, and draft flag again with `gh api --hostname github.com repos/<owner>/<repo>/pulls/<n> --jq '{headRefOid: .head.sha, baseRefName: .base.ref, baseRefOid: .base.sha, state, draft}'` (REST `state` is lowercase `open`). **If the head differs from the payload's SHA, the base ref or SHA differs from the Step 1 record, or the PR is no longer open or has become a draft, skip it this run and report it.** Never re-review and post without a fresh gate. Otherwise, run the voice scan from *Posting voice*, then:
 
 ```bash
 gh api --hostname github.com repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json

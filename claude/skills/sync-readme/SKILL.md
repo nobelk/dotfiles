@@ -1,6 +1,6 @@
 ---
 name: sync-readme
-description: Generate or refresh the repository's README.md by analyzing the codebase, specs, docs, and tests — verifying the lint/format/build/test/run commands actually work before documenting them — then codex-reviewing the result. Produces six sections — project overview, brief file structure, verified commands, ASCII diagrams of critical workflows, conventions/pitfalls, and coding style. Invoke manually when the README is missing, stale, or after a change that alters how the project is built, tested, or run.
+description: Generates or refreshes the repository's README.md from the codebase, specs, docs, and tests, running the lint/format/build/test/run commands to verify them before documenting them, then has codex review the result. Covers project overview, file structure, verified commands, ASCII diagrams of critical workflows, conventions and pitfalls, and coding style. Use when the README is missing or stale, or after a change to how the project is built, tested, or run.
 ---
 
 # Sync README skill
@@ -22,40 +22,28 @@ any codex suggestion or doc that contradicts them.
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent`/`Task`
-tool) and keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent` tool)
+and keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate): every `AskUserQuestion` gate (Step 0 overwrite confirmation,
-  Step 2 a command that hangs or looks destructive, Step 4 codex-unavailable, Step 6 ambiguous
-  finding), the final decision on what each README section says, and the Step 7 report. Subagents
-  cannot prompt the user — anything that might stop-and-ask stays here.
+  Step 2 a command that hangs or looks destructive, Step 4 codex-unavailable, Step 5 ambiguous
+  finding), **Step 2 command verification** (its output must be seen, and a hanging or destructive
+  command must be able to stop and ask), the final decision on what each README section says, and
+  the Step 6 report. Subagents cannot prompt the user.
 - **Delegate to `general-purpose` subagents** (each returns a compact structured result, keeping
   verbose file dumps and command output out of the main context):
-  - **Step 1** — fan out parallel readers: one over the source tree + entry points, one over
-    `specs/`, one over `docs/` and other documentation (`*.md`, `CONTRIBUTING`, ADRs), one over the
-    test suite. Each returns a tight summary, not raw file contents. Dispatch these in **one
-    message** so they run concurrently — they are independent.
-  - **Step 5** — launch the `/codex:adversarial-review --background` review of the README, poll
-    `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings
-    verbatim (also written to the scratch file). The codex transcript stays in the subagent.
-  - **Step 6** — split the findings into disjoint batches (~3–5 each; contradictory findings share a
+  - **Step 1** — four independent readers, launched as multiple `Agent` calls in **one message**:
+    source tree + entry points, `specs/`, `docs/` and other documentation (`*.md`, `CONTRIBUTING`,
+    ADRs), and the test suite. Each returns a tight summary, not raw file contents.
+  - **Step 4** — run the codex review of the README and return the raw findings verbatim (also
+    written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — split the findings into disjoint batches (~3–5 each; contradictory findings share a
     batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a
     single message**, each getting the Step 1 summaries and the Step 2 verified-command log and
     returning its slice of the accept/reject/defer disposition table. The main loop merges the slices.
 
-Keep **Step 2 (command verification) in the main loop** — it runs real build/test commands whose
-output you must see, and a hanging or destructive command must be able to stop and ask the user.
-
 Give each subagent a self-contained prompt: exactly what to read or run, and the precise shape of
 the result to return.
-
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple
-`Agent`/`Task` calls in a **single message** so they run concurrently — never run independent
-subagents one at a time across turns. Step 1's four readers (source tree + entry points, `specs/`,
-`docs/` + other docs, tests) are independent and **must** go out in one message; only the review →
-adjudication path (Step 5 → Step 6) is a serial chain, and within Step 6 the adjudication batches
-themselves fan out in one message. Step 2 command verification stays in the main
-loop (not parallelized) because its commands can hang or mutate state and may need to stop and ask.
 
 ## Step 0 — Establish context and the command surface
 
@@ -110,7 +98,9 @@ it** from the repo root and record the real outcome. Sequence matters and so doe
    whatever does run.
 2. Run **format-check, lint, build, test, and the run/help command** (prefer a non-blocking form for
    the app itself — `--help`, `--version`, a `--dry-run`, or a fast smoke target — rather than
-   launching a long-lived server). Capture exit code and a short tail of output for each.
+   launching a long-lived server). Bound every command with `timeout` (e.g. `timeout -k 10 600` for
+   build/test, `timeout -k 10 30` for the run/help command) so nothing outlives the call; exit 124 (or 137 after the kill) means
+   it hung. Capture exit code and a short tail of output for each.
 3. Classify each command:
    - **verified** — ran, exited success → document it exactly as run.
    - **verified-fails** — ran, exited non-zero for a real reason → document the command *and* the
@@ -122,11 +112,12 @@ it** from the repo root and record the real outcome. Sequence matters and so doe
 Safety gates (use `AskUserQuestion`, do not silently proceed):
 - A command appears **destructive** (`down`, `clean`, `reset`, `prune`, `drop`, anything that tears
   down state or deletes data) — confirm before running, or skip it and document from the runner file.
-- A command **hangs** (a server, a watcher) — interrupt it; document it as "starts a long-running
-  process" rather than waiting.
+- A command **hangs** (a server, a watcher) — let `timeout` stop it; document it as "starts a
+  long-running process" rather than waiting. Afterwards check for orphans
+  (`ps -axo pid,ppid,etime,%cpu,command | awk '$2 == 1 && $4 > 10'`) and kill any you created.
 
 Keep a tidy verified-command log (command → status → caveat). It is both the source for the README's
-instructions section and an input the Step 6 adjudicator uses to reject any codex claim about
+instructions section and an input the Step 5 adjudicators use to reject any codex claim about
 commands that contradicts what you actually observed.
 
 ## Step 3 — Write (or update) README.md
@@ -160,9 +151,9 @@ Be accurate over comprehensive. If a fact could not be verified, either leave it
 Draw what the code does, not a generic template. A workable shape:
 
 ```
-  ┌──────────┐     ┌─────────────┐     ┌───────────┐
-  │  caller  │────▶│  component  │────▶│  datastore │
-  └──────────┘     └─────────────┘     └───────────┘
+  ┌──────────┐     ┌─────────────┐     ┌─────────────┐
+  │  caller  │────▶│  component  │────▶│  datastore  │
+  └──────────┘     └─────────────┘     └─────────────┘
        label on the edge says what flows
 ```
 
@@ -170,21 +161,25 @@ Prefer the actual port/adapter/service names from Step 1. If a flow has concurre
 fuse (e.g. two retrieval legs → fusion), show the split and the join — that structure is exactly the
 "critical workflow" worth a diagram.
 
-## Step 4 — Hand off to codex for review via `/codex:adversarial-review --background`
+## Step 4 — Codex adversarial review of the README (delegated)
 
-Get an independent second-model review of the README just written through the
-**`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than
-plain `/codex:review` because the review needs **custom focus text** — it must judge README.md
-against CLAUDE.md / the task runner / specs, which `/codex:review` cannot carry. The edited README is
-the working-tree change the review scopes over; the focus text below points codex at it.
-`--background` detaches the run; recover it with `/codex:status` (progress) and
-`/codex:result <job-id>` (findings). Run it via the Step 5 subagent:
+Get an independent second-model review of the README just written. Use codex's
+**adversarial-review** mode rather than the native review because it accepts **custom focus text**,
+needed to judge README.md against CLAUDE.md, the task runner, and specs. The edited README is the
+working-tree change the review scopes over.
+
+The `/codex:*` slash commands set `disable-model-invocation: true`, so neither you nor a subagent can
+call them. The Step 4 subagent drives the companion script they wrap, from the repo root:
 
 ```bash
-/codex:adversarial-review --background "<focus>"
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"   # run_in_background: true
+node "<companion>" status                                       # read the new job id
+node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded wait; repeat until finished
+node "<companion>" result <job-id>                              # findings
 ```
 
-With `<focus>`:
+Pass `<focus>` as its own quoted argument:
 
 > Review README.md at the repo root for a new engineer and a product manager. Also read CLAUDE.md,
 > AGENTS.md, the task runner file (Taskfile.yml / Makefile / package.json), and specs/ if they exist
@@ -196,25 +191,17 @@ With `<focus>`:
 > finding output a numbered item with: the README section, the issue, and the suggested change.
 > Output findings only — do not rewrite the document.
 
-Concretely this launches the codex-companion runtime detached
-(`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"`
-with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
+- Enforce a 10-minute deadline. On deadline or a failed job, run `node "<companion>" cancel <job-id>`
+  and treat the review as failed.
+- If no companion path resolves (plugin not installed), run
+  `timeout -k 10 600 codex exec --sandbox read-only -o <scratch-file> "<focus>"` instead.
+- Capture the findings verbatim to a scratch file (e.g. `/tmp/codex-readme-review-<repo>.md`) so
+  Step 5 is auditable. Do **not** commit this file.
+- If `codex` is not on `PATH` or the review fails, do not silently skip: tell the user and use
+  `AskUserQuestion` to offer alternatives (retry, substitute a self-review pass against the Step 1
+  and Step 2 findings, or report the README as-is without the second-model pass).
 
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes,
-  then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g.
-  `/tmp/codex-readme-review-<repo>.md`) so Step 6 is auditable. Do **not** commit this file.
-- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not
-  silently skip: tell the user the codex review failed and use `AskUserQuestion` to offer
-  alternatives (retry, substitute a self-review pass against Step 1/Step 2 findings, or report the
-  README as-is without the second-model pass).
-
-## Step 5 — (delegated) run the review
-
-Covered by the Step 4 flow, dispatched to a `general-purpose` subagent that launches the background
-review, polls `/codex:status` to completion, fetches `/codex:result <job-id>`, and returns the raw
-findings verbatim. The lengthy codex transcript stays in the subagent.
-
-## Step 6 — Validate every finding and update the README
+## Step 5 — Validate every finding and update the README
 
 Do **not** apply codex's comments blindly — they are hypotheses to adjudicate, not instructions. For
 each numbered finding:
@@ -238,7 +225,7 @@ different meaning) or would change a claim the user explicitly set, resolve it w
 `AskUserQuestion` in the main loop — never in the subagent. Re-run any command a finding caused you
 to change, so the README stays verified.
 
-## Step 7 — Final report
+## Step 6 — Final report
 
 State:
 
@@ -257,7 +244,7 @@ Do **not** commit — leave `README.md` for the user to review and commit themse
 - A substantial README already exists and the user did not specify update vs. full rewrite (Step 0).
 - A command to verify looks destructive or hangs (Step 2).
 - `codex` is unavailable or its review errors (Step 4).
-- An accepted finding's fix is ambiguous or would change a user-set claim (Step 6).
+- An accepted finding's fix is ambiguous or would change a user-set claim (Step 5).
 
 ## Notes
 

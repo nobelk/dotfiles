@@ -1,6 +1,6 @@
 ---
 name: improve-coverage
-description: Measure unit-test coverage of the current branch's changed Go packages (diffed against the default branch), settle the plan's open decisions with the user in a grilling session (the grilling skill), draft a CLAUDE.md-compliant plan to raise it, codex-review the plan and fold in validated findings, then implement the tests and verify the lift with the project's format/lint/build/test gates. Invoke manually when you want to harden test coverage on a feature branch before merge.
+description: Raises unit-test coverage of the Go packages the current branch changed — measures the baseline against the default branch, settles targets with the user (grilling skill), writes a CLAUDE.md-compliant coverage plan, codex-reviews it, then writes the tests and verifies the lift with the project's format/lint/build/test gates. Use when hardening test coverage on a feature branch before merge.
 ---
 
 # Improve coverage skill
@@ -11,19 +11,19 @@ This skill follows the repo's TDD and hexagonal-discipline rules — read `CLAUD
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent` tool), and keep orchestration in the main loop. The split is fixed:
 
-- **Main loop owns** (never delegate): the Step 0 scope resolution, **every** stop-and-ask gate — the parenthetical examples (Step 0 branch==base or zero changed files, the red/uncompilable-package gate, the codex-unavailable gate, the larger-than-port production-change gate) are illustrative; the **Stop-and-ask conditions** list at the end is authoritative — plus the Step 2a grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it), drafting the plan in Step 3, presenting baseline numbers and dispositions, and the Step 8 final checklist. Subagents cannot prompt the user, so every gate stays here: a delegated subagent that hits one (a red package in Step 1, a too-large production change in Step 6) must return a "needs user decision" status to the main loop rather than guessing.
+- **Main loop owns** (never delegate): the Step 0 scope resolution, **every** stop-and-ask gate — the parenthetical examples (Step 0 branch==base or zero changed files, the red/uncompilable-package gate, the larger-than-port production-change gate) are illustrative; the **Stop-and-ask conditions** list at the end is authoritative — plus the Step 2a grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it), drafting the plan in Step 3, presenting baseline numbers and dispositions, and the Step 8 final checklist. Subagents cannot prompt the user, so every gate stays here: a delegated subagent that hits one (a red package in Step 1, a too-large production change in Step 6) must return a "needs user decision" status to the main loop rather than guessing.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result, keeping verbose `go test` / coverage output out of the main context):
   - **Step 1** — run the `go test … -coverprofile` + `go tool cover -func` commands over the target packages and return the per-package and total percentages plus the lowest-covered rows. The full profile output stays in the subagent.
-  - **Step 4** — launch the `/codex:adversarial-review --background` plan review, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the review scratch file).
+  - **Step 4** — launch the codex adversarial review of the plan through the companion script, poll it to completion under Step 4's deadline and liveness rules, and return the raw findings verbatim (also written to the review scratch file). On a breach it cancels and returns, and the main loop runs the native fallback.
   - **Step 5** — split the findings into disjoint batches (~3–5 each; contradictory findings share a batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting CLAUDE.md and the real source/tests and returning its slice of the accept/reject/defer table. The main loop merges the slices and rewrites `coverage-plan.md` from the accepted dispositions.
   - **Step 6** — dispatch a subagent to implement the planned tests for a target package (one subagent per package keeps each focused), following CLAUDE.md exactly, returning a summary of tests added and any minimal port extraction made. Re-running arch-lint after a port extraction belongs in Step 7's gate.
-  - **Step 7** — run `task fmt/lint/build/test` (or `task ci`) and the after-coverage re-measure, returning gate pass/fail plus the before→after numbers and any `task mutation` survivors.
+  - **Step 7** — run `task fmt/lint/build/test` (or `task ci`), each bounded (`timeout`, `go test -timeout`), and the after-coverage re-measure, returning gate pass/fail plus the before→after numbers and any `task mutation` survivors.
 
 Give each subagent a self-contained prompt: the exact commands, the target-package list from Step 0, the relevant CLAUDE.md rules, and the precise result shape to return.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Only serialize a genuine producer→consumer chain (Step 4 codex review → Step 5 adjudication is one — though once the findings arrive, the Step 5 adjudication batches themselves fan out in parallel). The big win here is **Step 6**: dispatch one implementation subagent per target package in a single message so the package-local test additions land in parallel. Guard it first with a **write-set check** — parallel dispatch is safe only for subagents whose edits stay confined to their own package's `_test.go` files. Serialize anything that touches a *shared* write surface: a production port/`Clock` extraction, a regenerated mock (`task mocks`) or other generated artifact, a `go.mod`/manifest change, a shared test fixture, or a lower-level package multiple targets import — land those prerequisites first (in the main loop or a single upstream subagent), then fan out the remaining package-local test work. Re-run arch-lint in Step 7 once the parallel edits land. The Step 2 rule/ADR/test-pattern reads likewise fan out in one message.
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Only serialize a genuine producer→consumer chain (Step 4 codex review → Step 5 adjudication is one — though once the findings arrive, the Step 5 adjudication batches themselves fan out in parallel). The big win here is **Step 6**: dispatch one implementation subagent per target package in a single message so the package-local test additions land in parallel. Guard it first with a **write-set check** — parallel dispatch is safe only for subagents whose edits stay confined to their own package's `_test.go` files. Serialize anything that touches a *shared* write surface: a production port/`Clock` extraction, a regenerated mock (`task mocks`) or other generated artifact, a `go.mod`/manifest change, a shared test fixture, or a lower-level package multiple targets import — land those prerequisites first (in the main loop or a single upstream subagent), then fan out the remaining package-local test work. Re-run arch-lint in Step 7 once the parallel edits land. The Step 2 rule/ADR/test-pattern reads likewise fan out in one message.
 
 ## Step 0 — Establish the baseline scope (changed packages)
 
@@ -52,10 +52,10 @@ The phrase "coverage of the current branch" means the Go packages touched relati
 
 ## Step 1 — Measure current coverage (the "before" number)
 
-Run the project's own coverage target so local and the report agree:
+Prefer the project's own coverage entrypoint (`task cover`, `make coverage`) when it can be scoped to the target packages, so local and CI agree; otherwise run the native form below. Use identical settings for the Step 7 after-run, and write profiles to a scratch directory outside the repo (`mktemp -d`; record the path as `<tmp>`):
 ```bash
-go test <target-packages> -race -count=1 -coverprofile=coverage.before.out
-go tool cover -func=coverage.before.out
+go test <target-packages> -race -count=1 -coverprofile="<tmp>/coverage.before.out"
+go tool cover -func="<tmp>/coverage.before.out"
 ```
 - Use the explicit target-package list from Step 0, not `./...` — the report must be branch-scoped. Naming each package explicitly is deliberate: a changed package with **no test file** still reports `0.0%` (Go emits a profile row for any package named in the arg list), which is exactly the gap this skill exists to catch. Do **not** switch to `-coverpkg` to "fix" this — `-coverpkg` drops un-imported packages from the profile and would hide that 0% package.
 - This measures **in-package self-coverage**: a package's own `_test.go` files covering its own statements. It does *not* credit a changed package for being exercised by a *sibling* package's tests. If a target package is intentionally covered by a consumer/helper package's tests (e.g. a port exercised via `portstest` or a consumer), its self-coverage number will read low — note this rather than chasing it, and only for that package re-measure with `go test ./... -coverpkg=<that-package> -coverprofile=...` to see whole-suite attribution. State which semantic each number is.
@@ -91,7 +91,7 @@ Ask only where the answer changes the plan; the repo's testing rules are facts, 
 
 ## Step 3 — Draft the coverage-improvement plan
 
-Write the plan to `specs/<branch>/coverage-plan.md` (create the dir if absent; `<branch>` is the current branch name). If a `specs/<branch>/` already exists, add the file alongside the existing plan docs.
+Write the plan to `specs/<branch>/coverage-plan.md` (create the dir if absent; `<branch>` is the current branch name). If a `specs/<branch>/` already exists, add the file alongside the existing plan docs. If `coverage-plan.md` already exists from an earlier run, read it and update it in place rather than starting over. If that path has uncommitted changes you did not make, ask before overwriting them.
 
 The plan must contain:
 1. **Baseline** — the per-package and total coverage numbers from Step 1, plus the dated target settled in Step 2a (e.g. "raise `internal/domain` from 61% → ≥85% statement coverage").
@@ -100,24 +100,45 @@ The plan must contain:
 4. **Safety-critical callout** — if any target package is on a safety-critical path (commands, ownership, consist propagation), note that mutation testing (`task mutation`) is required before merge, not just line coverage.
 5. **Non-goals** — what this pass deliberately leaves uncovered and why (e.g. integration-only paths behind build tags).
 
-Keep it concrete and minimal — it is a work list, not an essay. Do not embed Jira keys or issue numbers (CLAUDE.md forbids ticket IDs in the tree; this file is in the tree).
+Keep it concrete and minimal — it is a work list, not an essay. Do not embed Jira keys or issue numbers when CLAUDE.md forbids ticket IDs in the tree; this file is in the tree.
 
-## Step 4 — Have codex review the plan via `/codex:adversarial-review --background`
+## Step 4 — Have codex review the plan (adversarial review)
 
-Get an independent critique of the plan through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge a specific plan file against CLAUDE.md's testing rules, which `/codex:review` cannot carry. The plan file (`specs/<branch>/coverage-plan.md`) is the only untracked change in the working tree at this point, so the working-tree review scope plus the focus text targets exactly it. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings):
+Get an independent critique of the plan from codex's **adversarial review**, which — unlike plain `review` — carries **custom focus text**, so it can judge this plan file against CLAUDE.md's testing rules. Run it from the repo root in a subagent so the transcript stays out of the main context.
+
+The `/codex:*` entries are Claude Code slash commands with `disable-model-invocation: true` — **you cannot call them, and they are not shell commands**. Check availability with `command -v codex`, then run the companion script the plugin wraps:
 
 ```bash
-/codex:adversarial-review --background "Review the unit-test coverage-improvement plan in specs/<branch>/coverage-plan.md against the testing rules in CLAUDE.md (the six test qualities, boundary-driven coverage, mock-at-the-port, safety-critical mutation testing) and the hexagonal layering rules. List concrete gaps, weak test designs, missed boundary cases, any proposed test that would violate hermeticity/determinism, and any production change the plan implies but omits. Be specific and cite file/function names. Do not rewrite the plan; output a numbered list of findings."
+# Resolve the script and record its path as <companion> (version dir varies; sort -V so 1.0.10 beats 1.0.9):
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1
+
+node "<companion>" adversarial-review --background -- "<focus>"   # launch with run_in_background: true
+node "<companion>" status                                         # lists this repo's jobs: take <job-id> from it
+node "<companion>" status "<job-id>" --wait --json                # poll (4-min bounded waits); shows pid and logFile
+node "<companion>" result "<job-id>"                              # findings
+node "<companion>" cancel "<job-id>"                              # abandon
 ```
 
-Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`.
-- If `codex` is unavailable, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user codex review failed and use `AskUserQuestion` to offer alternatives (retry, substitute a second-pass self-review, or proceed without the review) before continuing.
-- Save codex's raw findings (e.g. to `specs/<branch>/coverage-plan.codex-review.md`) so the validation in Step 5 is auditable.
+Pass the focus as its **own argument after `--`**, never bundled into one `"--background <focus>"` string: the companion re-splits a single combined argument with its own parser, so quotes get rewritten and focus text containing `--base` or `--scope` turns into options. If no companion path resolves (plugin not installed), run `timeout -k 10 600 codex exec --sandbox read-only "<focus>"` in the subagent instead; if `codex` itself is absent, go straight to the fallback below.
 
-## Step 5 — Validate codex's findings, then update the plan
+`<focus>`:
 
-Do **not** apply codex's comments blindly — validate each one against the actual code and CLAUDE.md:
+> Review the unit-test coverage-improvement plan in specs/<branch>/coverage-plan.md against the testing rules in CLAUDE.md (the six test qualities, boundary-driven coverage, mock-at-the-port, safety-critical mutation testing) and the hexagonal layering rules. The user's settled decisions were: <Step 2a D1..Dn>. List concrete gaps, weak test designs, missed boundary cases, any proposed test that would violate hermeticity/determinism, and any production change the plan implies but omits. Be specific and cite file/function names. Do not rewrite the plan; output a numbered list of findings, or exactly "No findings" if there are none.
+
+**Enforce a deadline and a liveness check** — the review is the second opinion, never the critical path:
+- Hard deadline: **10 minutes**.
+- Treat the job as **dead now** if its `pid` is not alive (`ps -p "<pid>"`) while status still says `running`, and as **stalled** if its log file has been silent for **5+ minutes**.
+- A job that completes with an error, or whose result is absent or unreadable, counts as failed. A result of "No findings" is a passing review.
+
+On death, stall, deadline, or failure: run the companion's own `cancel "<job-id>"` and use the fallback. Do not hand-delete files under the plugin's state directory, and do not retry codex.
+
+**Fallback — adversarial subagent review.** When codex is absent, fails to launch, or trips the checks above, do not skip the review and do not ask: fan out **2–3 adversarial `general-purpose` subagents in a single message**, each with a distinct lens over the plan, CLAUDE.md, and the real code and tests — (i) are the claimed gaps real and the boundary tags right; (ii) does each test design obey the testing rules (hermetic, deterministic, mock-at-the-port); (iii) what did the plan miss, including implied production changes. Each cites `file:line` or plan section and verifies every claim against the code. Record in the Step 8 report that the review came from the fallback and why.
+
+Save the raw findings verbatim to `<tmp>/coverage-plan.review.md`, outside the tree, so the validation in Step 5 is auditable.
+
+## Step 5 — Validate the review findings, then update the plan
+
+Do **not** apply review comments blindly, whatever their source — validate each one against the actual code and CLAUDE.md:
 - For every finding, check it against the real source/tests, the rules, and the Step 2a settled decisions. Mark each: **accept** (real gap — fold the fix into the plan), **reject** (incorrect, contradicts CLAUDE.md, or only disputes a choice the user made — note why), or **defer** (valid but out of scope — move to Non-goals).
 - A finding showing a settled decision rests on a wrong fact or is unsafe is not rejected: before giving it a disposition, reopen that branch of the design tree and run grilling on it until its frontier is empty again and the user confirms, then update the settled decisions. The same applies to an accepted finding that would overturn a settled decision.
 - Common codex misses to scrutinize: suggestions that add a third-party assertion lib (check ADRs first), proposals to test unexported internals directly (CLAUDE.md says mock at the port, never below), or "increase coverage" advice that would test the standard library or the type under test.
@@ -128,10 +149,10 @@ Present the validated dispositions to the user before implementing.
 ## Step 6 — Implement the tests (TDD, package-local)
 
 Work through the updated plan, one target package at a time, following CLAUDE.md exactly:
-- Write failing tests first; assert before implementing so each fails for the right reason.
+- Run each new test and confirm which it is: one pinning existing correct behavior passes (check that its assertion can fail); one exposing a bug fails for the right reason.
 - Table-driven, `t.Parallel()` on every leaf/subtest, generated `uber-go/mock` doubles at the port boundary, no wall-clock reads (inject a `Clock`), `cmp.Diff` for structs, diagnostic `want=/got=` failure messages.
 - If a gap is unreachable without a production change (e.g. an un-extractable clock or an untestable concrete dependency), make the **minimal** port extraction the plan named — and re-verify arch-lint still passes.
-- For any bug a new test uncovers, add a regression test that fails on `HEAD~1` and passes on the fix (CLAUDE.md regression rule).
+- A bug a new test uncovers is a production change: stop and ask whether to fix it now or defer it. If fixed, keep the test as its regression test — it must fail without the fix and pass with it (CLAUDE.md regression rule). If deferred, do not leave a red test in the tree: pin the current behavior with a comment naming the defect, and record the bug under Remaining risk.
 - Run `gofmt` and the touched package's tests while iterating; keep changes minimal and package-local.
 
 ## Step 7 — Format, lint, build, test, and verify the lift
@@ -142,20 +163,20 @@ task fmt
 task lint
 task build
 task test
-go test <target-packages> -race -count=1 -coverprofile=coverage.after.out
-go tool cover -func=coverage.after.out
+go test <target-packages> -race -count=1 -coverprofile="<tmp>/coverage.after.out"
+go tool cover -func="<tmp>/coverage.after.out"
 ```
-- Prefer `task ci` for the full gate (lint + test + build + arch-lint) unless the user asked to skip it. Run `task --list` first to confirm these targets exist; if the Taskfile names them differently (or there is no Taskfile), run the project's equivalents — the gate is fmt + lint + build + test however the project spells it. This skill assumes a Go project with a Taskfile; adapt the verbs, not the gate.
+- Prefer `task ci` for the full gate unless the user asked to skip it, after reading its definition to confirm what it runs; run any of fmt/lint/build/test (and arch-lint) it omits separately. Run `task --list` first to confirm these targets exist; if the Taskfile names them differently (or there is no Taskfile), run the project's equivalents — the gate is fmt + lint + build + test however the project spells it. This skill assumes a Go project with a Taskfile; adapt the verbs, not the gate.
 - Check each package against the target settled in Step 2a (its number, or its named high-risk paths each pinned by a test). A miss is a stop-and-ask: close more gaps, defer the named gap, or waive the target explicitly.
-- Compare `coverage.after.out` total against the Step 1 baseline. "Significantly increased" means a material, named jump (state the before → after per package and total). If the lift is marginal, say so honestly and propose the next gap rather than declaring success.
+- Compare the after-run total against the Step 1 baseline. "Significantly increased" means a material, named jump (state the before → after per package and total). If the lift is marginal, say so honestly and propose the next gap rather than declaring success.
 - For safety-critical packages, run `task mutation` and report surviving mutants — line coverage alone does not clear a safety path.
-- Clean up scratch coverage files (`coverage.before.out`, `coverage.after.out`) unless the user wants them kept; never commit them.
+- Remove the `<tmp>` scratch directory unless the user wants its files kept; never commit them.
 
 ## Step 8 — Final response checklist (per CLAUDE.md)
 
 Before handoff, state:
 - **What changed** — packages, tests added, any production port extraction, before → after coverage per package and total, and each Step 2a target as met / deferred / waived.
-- **Which checks ran** — `task fmt/lint/build/test`, `task ci`, `task mutation` (if safety-critical), and the codex review.
+- **Which checks ran** — `task fmt/lint/build/test`, `task ci`, `task mutation` (if safety-critical), and the plan review (codex, or the subagent fallback and why).
 - **Which checks were skipped and why.**
 - **Remaining risk** — uncovered paths left in Non-goals, surviving mutants, or any boundary class still unaddressed, especially around safety, ordering, concurrency, or architecture boundaries.
 
@@ -166,6 +187,6 @@ Use `AskUserQuestion` only for these genuine forks where the answer is the user'
 - Current branch equals the default branch (no delta to scope).
 - Zero production `.go` files changed.
 - A target package will not compile or its tests are red before you start.
-- `codex` is unavailable or its review fails.
+- A new test uncovers a bug (Step 6) — options: fix now with a regression test / defer and pin current behavior.
 - A package misses its Step 2a target (Step 7) - options: close more gaps / defer the named gap / waive the target.
 - A planned test cannot be written without a production change larger than a minimal port extraction — options: approve the larger change / defer that gap / revise the plan to avoid the change / stop.

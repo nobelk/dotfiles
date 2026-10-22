@@ -1,6 +1,7 @@
 ---
 name: jira-planner
-description: Translate an architecture design document into a milestone-driven Jira delivery plan (Milestones → Epics → User Stories), reconciled against what the codebase already implements, written to jira_plan.md, codex-reviewed, and — after explicit confirmation — published to a Jira board via the Atlassian MCP tools. Takes the design-doc path and optionally a Jira project key as arguments (asks when omitted or ambiguous). Invoke manually when a design doc is ready to break down into tickets, or to refresh an existing plan against the codebase.
+description: Turns an architecture design document into a milestone-driven Jira delivery plan (milestones, epics, user stories) reconciled against what the codebase already implements, writes it to jira_plan.md, has codex review it, and publishes it to a Jira board after explicit confirmation. Takes the design-doc path and an optional Jira project key. Use when a design doc is ready to break down into Jira tickets, or to refresh an existing plan against the codebase.
+argument-hint: "<design-doc-path> [JIRA-PROJECT-KEY]"
 ---
 
 # Jira planner skill
@@ -9,12 +10,12 @@ Act as a senior technical program manager translating an architecture design doc
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent`/`Task` tool) and keep orchestration in the main loop:
+Run the expensive, self-contained steps in **`general-purpose` subagents** (via the `Agent` tool) and keep orchestration in the main loop:
 
-- **Main loop owns** (never delegate): every `AskUserQuestion` gate, writing/editing `jira_plan.md`, and all Jira writes in Step 7 — subagents cannot prompt the user, and outward-facing writes need the main loop's confirmation gates.
-- **Delegate**: the Step 2 codebase analysis, the Step 6 codex run, and the Step 6 finding adjudication. Give each subagent a self-contained prompt with exact commands, file paths, and the precise result shape to return.
-
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. Concretely: **Step 2 fans out** — for a non-trivial codebase, split the Step 1 component/capability list into clusters and launch one analysis subagent per cluster in one message (each returns its slice of the implemented/partial evidence list; the main loop merges them). **Step 6 adjudication fans out** — split the codex findings into disjoint batches and adjudicate them in parallel subagents, keeping contradictory findings in the same batch. The Step 6 codex run → adjudication → apply path is otherwise a serial chain. **Step 7 Jira writes never parallelize**: issue creation is outward-facing and dependency-ordered (epics before stories before links), so it stays strictly sequential in the main loop. Parallel subagents are read-only — none of them writes `jira_plan.md` or touches Jira.
+- **Main loop owns** (never delegate): every `AskUserQuestion` gate, writing/editing `jira_plan.md`, and all Jira writes in Step 7. Subagents cannot prompt the user, and outward-facing writes need the main loop's confirmation gates.
+- **Delegate**: the Step 2 codebase analysis (fanned out per cluster), the Step 6 codex run, and the Step 6 finding adjudication (fanned out per batch). Give each subagent a self-contained prompt with exact commands, file paths, and the precise result shape to return.
+- **Parallelize independent subagents**: launch them as multiple `Agent` calls in a single message. Parallel subagents are read-only; none writes `jira_plan.md` or touches Jira.
+- **Step 7 Jira writes never parallelize**: they are outward-facing and dependency-ordered (epics, then stories, then links).
 
 ## Step 0 — Resolve inputs
 
@@ -115,22 +116,32 @@ Write the plan to `jira_plan.md`, in this order:
 
 Have codex (OpenAI Codex CLI) review `jira_plan.md`, then validate and address its comments:
 
-1. **Run the review in a `general-purpose` subagent**: launch `/codex:adversarial-review --background` targeting `jira_plan.md` (review focus: completeness against the architecture doc, dependency/sequencing correctness, epic/story sizing, ID stability and referential integrity, ticket-readiness of acceptance criteria, and whether completion statuses are plausible given the codebase evidence). The subagent polls `/codex:status` to completion, fetches `/codex:result <job-id>`, and returns the raw findings verbatim.
+1. **Run the review in a `general-purpose` subagent.** The `/codex:*` slash commands set `disable-model-invocation: true`, so neither you nor a subagent can call them; the subagent drives the companion script they wrap, from the current directory:
+
+   ```bash
+   ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+   node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"   # run_in_background: true
+   node "<companion>" status                                       # read the new job id
+   node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded wait; repeat until finished
+   node "<companion>" result <job-id>                              # findings
+   ```
+
+   `<focus>`: "Review jira_plan.md (a Jira delivery plan) against <architecture-doc-path>. Check completeness against the architecture doc, dependency/sequencing correctness, epic/story sizing, ID stability and referential integrity, ticket-readiness of acceptance criteria, and whether completion statuses are plausible given the codebase. Output numbered findings (plan section, issue, suggested change); do not edit files." Pass it as its own quoted argument so quotes inside it survive. Enforce a 10-minute deadline; on deadline or a failed job, run `node "<companion>" cancel <job-id>` and report the review as failed. The companion only runs inside a git repository; if the current directory is not one, or no companion path resolves, run `timeout -k 10 600 codex exec --sandbox read-only --skip-git-repo-check -o <scratch-file> "<focus>"` instead. The subagent returns the raw findings verbatim.
 2. **Adjudicate each finding in parallel**: split the findings into disjoint batches (one per plan section, or ~3–5 findings each) and launch one adjudication subagent per batch **in a single message**. Each returns an accept/reject/defer disposition table with one-line evidence per finding, validated against the architecture doc and the Step 2 codebase analysis — codex comments are input, not orders. If two findings contradict each other, put them in the same batch so one subagent resolves the conflict.
 3. **Apply accepted findings** to `jira_plan.md` in the main loop. Any finding that requires a scope, priority, or product decision — or whose validity you cannot determine from the documents — goes to the user via `AskUserQuestion`; never guess silently.
-4. If codex is unavailable or the review fails, say so explicitly and use `AskUserQuestion` to ask whether to proceed to Step 7 without the review or stop.
+4. If codex is unavailable (no `codex` on `PATH`) or the review fails, say so explicitly and use `AskUserQuestion` to ask whether to proceed to Step 7 without the review or stop.
 
 ## Step 7 — Create the Jira issues on the board
 
-Publish the plan to Jira using the Atlassian MCP tools (`mcp__claude_ai_Atlassian__*`; load them via ToolSearch first if deferred). If the Atlassian MCP server is not connected, stop and tell the user — do not attempt REST calls with guessed credentials.
+Publish the plan to Jira using the Atlassian MCP tools. They are deferred and may be exposed as `mcp__claude_ai_Atlassian__<tool>` or `mcp__plugin_engineering_atlassian__<tool>`; load the schemas first with ToolSearch (e.g. `+atlassian createJiraIssue`). If no Atlassian MCP server is connected, stop and tell the user; do not attempt REST calls with guessed credentials. Every call needs a `cloudId`: get it from `getAccessibleAtlassianResources` (ask via `AskUserQuestion` if several sites are returned).
 
 1. **Resolve the target project**: use the Step 0 project key if given; otherwise call `getVisibleJiraProjects` and present the candidates via `AskUserQuestion`. Verify the key exists before proceeding.
-2. **Discover project metadata**: fetch the project's issue types (`getJiraProjectIssueTypesMetadata`) and available link types (`getIssueLinkTypes`). If the project has no Epic issue type, or milestones need representing, use `AskUserQuestion` to decide the mapping (e.g. milestones as labels `M1`/`M2` vs. fixVersions; epics as another container type).
+2. **Discover project metadata**: fetch the project's issue types (`getJiraProjectIssueTypesMetadata`), the Story type's fields (`getJiraIssueTypeMetaWithFields` with `requiredFieldsOnly: false`, to find required fields and the story-points field ID), and available link types (`getIssueLinkTypes`). If the project has no Epic issue type, or milestones need representing, use `AskUserQuestion` to decide the mapping (e.g. milestones as labels `M1`/`M2` vs. fixVersions; epics as another container type).
 3. **Confirm before writing** — this is an outward-facing, hard-to-reverse action. Present a summary via `AskUserQuestion`: target project, number of epics/stories/links to create, and how to handle ✅/🔶 items (skip, create-and-transition-to-Done, or create as open). Do not create anything until the user confirms.
 4. **Create in dependency order**:
    - Epics first (`createJiraIssue`), recording each plan ID → Jira key as you go.
-   - Stories next, linked to their parent epic, carrying over the story statement + description + acceptance criteria + technical notes into the issue description, story points where the project supports them, suggested labels, and the plan ID (as a label like `plan-M1-E1-S1` or in the description) for traceability.
-   - Links last: for every dependency in the plan, create an issue link (`createIssueLink`) using the project's "Blocks" link type (blocker blocks blocked); fall back to the closest available type from `getIssueLinkTypes` and note any substitution in the report.
+   - Stories next, with `parent` set to the epic's key, carrying over the story statement + description + acceptance criteria + technical notes into the issue description (`contentFormat: "markdown"`), story points (the custom field found in step 2, via `additional_fields`) where the project supports them, suggested labels, and the plan ID (as a label like `plan-M1-E1-S1` or in the description) for traceability. If the user chose create-and-transition-to-Done for completed items, find the transition with `getTransitionsForJiraIssue` and apply it with `transitionJiraIssue`.
+   - Links last: for every dependency in the plan, create an issue link (`createIssueLink`) using the project's "Blocks" link type, with `inwardIssue` = the blocker and `outwardIssue` = the blocked issue; fall back to the closest available type from `getIssueLinkTypes` and note any substitution in the report.
    - If the plan's Jira Mapping table already has a key for an item (update-in-place rerun), update that issue (`editJiraIssue`) instead of creating a duplicate.
 5. **Record the mapping**: after each successful create, append the plan ID → Jira key/URL to the Jira Mapping section of `jira_plan.md`. If a creation fails mid-run, stop, keep the mapping of everything created so far, and report exactly what exists on the board and what remains.
 

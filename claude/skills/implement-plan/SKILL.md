@@ -1,13 +1,13 @@
 ---
 name: implement-plan
-description: Implement a markdown plan file end to end on the current branch as a principal software engineer — reads the plan plus the repo's conventions, clarifies ambiguity with AskUserQuestion, implements it test-first under clean-code/clean-architecture/design-pattern standards (fanning genuinely independent task groups out to parallel subagents), runs the /simplify skill on the result, reviews the branch's changes with codex (falling back to adversarial subagent review when codex is unavailable, fails, stalls, or times out), adjudicates and fixes the findings, then verifies the whole branch by running the project's format, lint, build, and full test-suite gates before committing, pushing the current branch, and creating or updating its GitHub pull request. Takes the path to a markdown plan file as the argument. Invoke manually when a written plan is ready to build.
+description: Implements a markdown plan file end to end on the current branch — test-first, with parallel subagents for independent task groups — then runs /simplify, a codex review (adversarial-subagent fallback) with validated fixes, and the project's format/lint/build/test gates, and finally commits, pushes, and creates or updates the GitHub pull request. Takes the plan file path as the argument. Use when a written plan is ready to build.
 ---
 
 # Implement-plan skill
 
 Take a written markdown plan and **build it to done** on the **current branch**, acting as a principal software engineer: deliberate, test-first, minimal, and faithful to the repo's own rules.
 
-The argument is `<plan-file>` — the path to a single markdown file describing the work (e.g. `docs/plans/rate-limiter.md`). Unlike `/implement-spec`, there is no spec trio and no worktree juggling: the plan file is the whole contract and the work lands on whatever branch is checked out now.
+The argument is `<plan-file>` — the path to a single markdown file describing the work (e.g. `docs/plans/rate-limiter.md`). Unlike `/implement-spec`, there is no spec-plus-tickets task graph and no per-ticket worktrees: the plan file is the whole contract and the work lands on whatever branch is checked out now.
 
 Output is working, reviewed, verified code committed and pushed to the current branch's remote, with a GitHub pull request created or updated for it.
 
@@ -28,10 +28,10 @@ This is the bar for every step below — not decoration:
 
 ## Subagent delegation
 
-Run expensive, self-contained work in **`general-purpose` subagents** (via the `Agent`/`Task` tool) and keep orchestration in the main loop. The split is fixed:
+Run expensive, self-contained work in **`general-purpose` subagents** (via the `Agent` tool) and keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate):
-  - Every `AskUserQuestion` gate (subagents cannot prompt the user): a missing/unreadable plan file, a detached/default-branch `HEAD`, or a dirty tree with unrelated changes (Step 0), an ambiguous or self-contradicting plan (Step 2), an implementation fork with real trade-offs (Step 3), an ambiguous or invasive review fix (Step 5c), a failing gate unrelated to the change (Step 6), the fork question when detection fails and an `upstream` remote exists (Step 0.2), the push-and-pull-request confirmation plus the second confirmation for a default or protected branch (Step 7.3), a push URL that is not a fast-forward (Step 7.3), and a matching pull request that is closed, merged, against a different base, or changed since it was confirmed (Step 7.5).
+  - Every `AskUserQuestion` gate — the **Stop-and-ask conditions** list at the end is authoritative. Subagents cannot prompt the user.
   - **Invoking skills** (`/simplify` in Step 4, `/codex-review` in Step 5) — the Skill tool runs in this conversation and cannot be launched from inside a subagent.
   - The task-group dependency analysis and the decision of what may run in parallel (Step 3).
   - Merging subagent results and resolving conflicts between them. In Step 5 the adjudication batches run in subagents that gather evidence and *recommend* a disposition; the main loop makes the final accept/reject/defer call.
@@ -40,11 +40,11 @@ Run expensive, self-contained work in **`general-purpose` subagents** (via the `
   - **Step 1** — read the plan, `CLAUDE.md`, the nearest existing package code/tests, and any docs the plan cites; return a structured brief. Keeps the bulky reading out of the main context.
   - **Step 3** — implementation of independent task groups (see the parallelism rules below).
   - **Step 5** — the codex review run, and the adjudication batches.
-  - **Step 6** — the gate run (`task ci`, etc.), returning pass/fail plus only the failing output.
+  - **Step 6** — the gate run (`task ci`, etc.), each command bounded (`timeout`, `go test -timeout`), returning pass/fail plus only the failing output.
 
 Give each subagent a self-contained prompt: the plan file path, the exact scope limits, the commands to run, the principal-engineer posture standards, the TDD requirement, and the precise result shape to return (changed files, red-then-green test evidence, anything it deliberately left out).
 
-**Parallelize by default where there is no data dependency**, dispatching the concurrent calls as multiple `Agent`/`Task` calls in a **single message**. Step 1's reads are independent — fan them out. Step 5's adjudication batches are independent — fan them out. Step 3's parallelism is conditional and is decided explicitly in that step.
+**Parallelize by default where there is no data dependency**, dispatching the concurrent calls as multiple `Agent` calls in a **single message**. Step 1's reads are independent — fan them out. Step 5's adjudication batches are independent — fan them out. Step 3's parallelism is conditional and is decided explicitly in that step.
 
 ## Step 0 — Resolve the plan file and the working state
 
@@ -65,8 +65,9 @@ The numbered items below are referred to as **Step 0.1 … Step 0.4**.
    **Resolve the pull request's target now, once** — Step 7.5 reuses these values and never re-resolves them. Parse `<head-host>`, `<head-owner>`, and `<head-repo>` from `<remote>`'s push URL; this works for HTTPS and for SSH forms such as `git@host:owner/repo.git`. Then record `<gh-state>` **before any `gh` call**:
 
    ```bash
-   gh auth status --active --hostname "<head-host>"   # exit 0 → gh can act on this host
+   gh auth status --hostname "<head-host>"   # exit 0 → gh can act on this host
    ```
+   Add `--active` where the installed `gh` supports it (newer releases), so a broken inactive account on the host does not fail the check; older `gh` rejects the flag as unknown, which must not be read as "unauthenticated".
 
    - **`github`** — the command exits 0. Continue below.
    - **`not-github`** — `<head-host>` is not a GitHub or GitHub Enterprise host `gh` knows, for example a GitLab or Bitbucket remote. Skip fork detection, treat the branch as non-fork, and record that no PR can be opened.
@@ -90,7 +91,7 @@ The numbered items below are referred to as **Step 0.1 … Step 0.4**.
 
    When you do derive `<default-branch>` from a `<remote>/…` ref, strip **only** the exact `<remote>/` prefix — keep every remaining slash, so `origin/release/stable` yields `release/stable`, not `stable`. A wrong `<default-branch>` silently disables the default-branch push safeguard.
 
-   Every `<placeholder>` in this skill's commands is a value you substitute, not a shell variable. **Quote each one in every command you actually run** — the snippets below show quotes where the value is substituted, and ref names legitimately contain `$`, backticks, and `;`, so an unquoted substitution turns a branch name into shell code. Use `--` before pathspecs.
+   Every `<placeholder>` in this skill's commands is a value you record in the conversation and substitute, not a shell variable — Bash tool calls do not share shell state; where a snippet captures a value, record the printed output under the named placeholder. **Single-quote each one in every command you actually run** (write an embedded `'` as `'\''`) — ref names legitimately contain `$`, backticks, and `;`, and double quotes still expand `$(...)` and backticks, so only single quotes keep a branch name from becoming shell code. The snippets below mark substituted values with double quotes for readability; use single quotes when you run them. Use `--` before pathspecs.
 3. **Confirm the branch and pin the starting point.** Run `git branch --show-current` and record the result as `<current-branch>`, and `git rev-parse HEAD` as `<starting-commit>` — the branch and tip this skill is bound to for the whole run. `<starting-commit>` is what Step 6 reproduces pre-existing failures against, and the expected tip for every drift check: a commit, reset, or rebase on the same branch keeps the name identical, so the branch name alone proves nothing. Advance the expected tip only for commits this skill makes. It never creates a branch or worktree without explicit user approval; it may create one only when the user selects that option below.
    - Empty output means detached `HEAD`: stop and ask via `AskUserQuestion` whether to create a branch here or abort. Never implement on a detached `HEAD` — there is nothing to push.
    - If it equals `<default-branch>`, stop and ask whether to create a feature branch first, proceed on the default branch anyway, or abort. Pushing straight to the default branch is almost never intended.
@@ -114,8 +115,6 @@ Delegate a read-only pass that returns everything needed to implement without re
 - Read `<plan-file>` in full.
 - Read `CLAUDE.md` and any ADRs, specs, tickets, or sibling docs the plan cites.
 - For each task group in the plan, identify the package(s) and files it will touch and the nearest existing code and test patterns to mirror.
-
-Fan these reads out across parallel reader subagents in one message; they share no state.
 
 The subagents return, and the main loop assembles: the **ordered task-group list**, the per-group target files, the conventions that bind (layering rules, TDD requirement, logging/observability gates, safety rules), and — since a plan file has no `validation.md` — an explicit **acceptance checklist** derived from the plan (what must be true and how each item is proven). That brief is the plan of record.
 
@@ -155,13 +154,11 @@ Keep edits minimal and traceable to a task group. Do not implement beyond the pl
 
 ## Step 4 — Simplify the changed code (`/simplify`)
 
-Once the implementation is functionally complete and the touched-package tests pass, invoke the **`/simplify`** skill (via the Skill tool, in the main loop — the Skill tool cannot be launched from inside a subagent) to clean up the new and modified code for reuse, simplification, efficiency, and altitude. `/simplify` is a quality pass only — it does not hunt for bugs (that's Step 5) — and it applies its cleanups directly to the working tree. Let it finish before reviewing.
+Once the implementation is functionally complete and the touched-package tests pass, invoke the **`/simplify`** skill (via the Skill tool, in the main loop — the Skill tool cannot be launched from inside a subagent) to clean up the new and modified code for reuse, simplification, efficiency, and altitude. `/simplify` is a quality pass only — it does not hunt for bugs (that's Step 5) — and it applies its cleanups directly to the working tree. Let it finish before reviewing. If `/simplify` is unavailable in this environment, say so in the Step 8 report and do the reuse/simplification pass yourself against the posture's clean-code standards; do not silently skip it.
 
-This pass matters more here than in a serial implementation: parallel subagents cannot see each other's work, so the most likely defect is duplicated helpers or two near-identical shapes introduced by different batches. Give `/simplify` the full list of changed files, not just one batch's.
+This pass matters more here than in a serial implementation: parallel subagents build without integrating each other's work, so the most likely defect is duplicated helpers or two near-identical shapes introduced by different batches. Give `/simplify` the full list of changed files, not just one batch's.
 
 Then read your own diff once (`git diff`, plus untracked files) for what `/simplify` does not target: dead code, debug prints, stray TODOs, inconsistent naming. Fix what you find — a reviewer's time is better spent on substance.
-
-If `/simplify` is unavailable in this environment, say so in the Step 8 report and do the reuse/simplification pass yourself against the posture's clean-code standards; do not silently skip it.
 
 ## Step 5 — Independent review: codex first, adversarial subagents as fallback
 
@@ -180,44 +177,43 @@ If Step 0 left disjoint unstaged dirt in the tree, codex's working-tree review w
 
 Check availability first: `command -v codex`.
 
-**If the repo/user has the `/codex-review` skill installed, prefer it** — it already owns the launch, liveness, adjudication, fix, and verification contract end to end. Invoke it via the Skill tool in the main loop, tell it the scope you need (the union above; answer its scope question with "union" rather than letting it pick), then **skip Steps 5b and 5c entirely and go to Step 6** — re-adjudicating and re-fixing findings it already handled would duplicate its work. Carry its disposition table into the Step 8 report. If it reports codex unavailable and hands back, run 5b here.
+**If the repo/user has the `/codex-review` skill installed, prefer it** — it already owns the launch, liveness, adjudication, fix, and verification contract end to end. Invoke it via the Skill tool in the main loop, tell it the scope you need and the resolved `<base>` (the union above against `<base>`; answer its scope question with "union" rather than letting it pick), then **skip Steps 5b and 5c entirely and go to Step 6** — re-adjudicating and re-fixing findings it already handled would duplicate its work. Carry its disposition table, and whether it fell back to its own native review, into the Step 8 report.
 
 Otherwise drive codex yourself from the repo root, in a subagent so the transcript stays out of the main context. The `/codex:*` entries are Claude Code slash commands with `disable-model-invocation: true` — **you cannot call them, and they are not shell commands**. Run the companion script the plugin wraps:
 
 ```bash
-# Resolve the script once (version dir varies; sort -V so 1.0.10 beats 1.0.9):
-COMPANION=$(ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1)
+# Resolve the script and record its path as <companion> (version dir varies; sort -V so 1.0.10 beats 1.0.9):
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1
 
-node "$COMPANION" review "--background --scope working-tree"   # uncommitted changes
-node "$COMPANION" review "--background --base <base>"          # branch delta
-node "$COMPANION" status <job-id> --wait                       # poll (4-min bounded waits)
-node "$COMPANION" result <job-id>                              # findings
-node "$COMPANION" cancel <job-id>                              # abandon
+node "<companion>" review --background --scope working-tree   # uncommitted changes
+node "<companion>" review --background --base "<base>"       # branch delta
+node "<companion>" status                                     # lists this repo's jobs: take <job-id> from it
+node "<companion>" status "<job-id>" --wait --json            # poll (4-min bounded waits); shows pid and logFile
+node "<companion>" result "<job-id>"                          # findings
+node "<companion>" cancel "<job-id>"                          # abandon
 ```
 
-Launch with `run_in_background: true`. If `$COMPANION` does not resolve (plugin not installed), fall back to a direct one-shot run in the subagent — `codex exec --sandbox read-only "<review prompt naming the file list>"` — and if `codex` itself is absent, go straight to 5b.
+Launch each review with `run_in_background: true`. Pass the flags as separate arguments: a single combined string is re-split by the companion's own parser. If no companion path resolves (plugin not installed), fall back to a direct one-shot run in the subagent — `timeout -k 10 600 codex exec --sandbox read-only "<review prompt naming the file list>"` — and if `codex` itself is absent, go straight to 5b.
 
 **When both scopes are non-empty, launch both jobs in the same message** (they are independent), give each its **own** scratch file so the parallel writes don't clobber one path, await both job IDs, then merge the findings and dedupe overlaps by `file:line`. Save every result verbatim to its scratch file (e.g. `/tmp/implement-plan-review-<slug>-working-tree.md`, where `<slug>` is the branch with `/` replaced by `-`, or just use `mktemp`) so the adjudication is auditable. Do not commit those files.
 
 **Enforce a deadline and a liveness check** — codex is the second opinion, never the critical path:
 
 - Hard deadline: **10 minutes**.
-- Treat the job as **dead now** if its recorded `pid` is not alive (`ps -p <pid>`) while status still says `running`.
+- Treat the job as **dead now** if its `pid` is not alive (`ps -p "<pid>"`) while status still says `running`.
 - Treat it as **stalled** if its log file has been silent for **5+ minutes**.
 
 On death, stall, or deadline: run the companion's own `cancel <job-id>` and go to 5b. Do not hand-delete files under the plugin's state directory — the companion owns that index, and a stray `rm` there breaks later jobs. Do not retry codex and do not ask whether to retry — the fallback is deterministic and costs less than a second stall.
 
 ### 5b — Fallback: adversarial subagent review
 
-If codex is not installed, its launch fails, or the liveness check fires, **do not skip the review** — run it natively, without asking. Fan out **2–3 adversarial `general-purpose` subagents in a single message**, each with a distinct lens over the review file list recorded above and the Step 1 project rules:
+If codex is not installed, its launch fails, or the liveness check fires, **do not skip the review** — run it natively, without asking, and record in the Step 8 report that the review came from the native fallback and why (codex absent / launch failed / dead pid / stalled / deadline). Fan out **2–3 adversarial `general-purpose` subagents in a single message**, each with a distinct lens over the review file list recorded above and the Step 1 project rules:
 
 - **correctness / invariants** — does the code do what the plan says, at every boundary?
 - **error handling / silent failure / fallback behavior** — what failure gets swallowed?
 - **test coverage / edge cases** — what does the plan require that no test proves?
 
 Instruct each to cite `file:line` and to *verify* every claim against the actual code — no hypotheticals, no style opinions that contradict the repo's conventions. If the repo ships specialized review agents (e.g. `pr-review-toolkit`'s `silent-failure-hunter`, `type-design-analyzer`, `pr-test-analyzer`), prefer the ones that fit the diff and dispatch them concurrently.
-
-Proceed with the fallback without asking, and record in the Step 8 report that the review came from the native fallback and why (codex absent / launch failed / dead pid / stalled / deadline).
 
 ### 5c — Validate every finding, then fix (the load-bearing step)
 
@@ -279,13 +275,11 @@ Then walk the Step 1 acceptance checklist against what now exists: each item pre
 
 Enter this step only when Step 6 has closed out: every gate **pass** or **not configured**, and every checklist item satisfied — or the user has explicitly waived a specific red gate or accepted a documented deferral. A not-configured gate does not block entry. Whatever was waived, deferred, or not configured is named in the Step 8 report and the PR body, and never implied to be green.
 
-Sub-steps below are referred to as **Step 7.0 … Step 7.5**. A bare "Step 5" elsewhere in this file always means the review step, never Step 7.5.
-
-Every `<placeholder>` is a value you record in the conversation and substitute, not a shell variable — Bash tool calls do not share shell state. Where a snippet captures a value, record the printed output under the named placeholder.
+Sub-steps below are referred to as **Step 7.0 … Step 7.5**. A bare "Step 5" elsewhere in this file always means the review step, never Step 7.5. Placeholders follow the Step 0.2 rule: record, substitute, quote.
 
 ### Step 7.0 — Re-check the branch and the expected tip
 
-`git branch --show-current` must equal `<current-branch>`, and `git rev-parse HEAD` must equal `<expected-tip>`. `<expected-tip>` starts as `<starting-commit>`, and moves **only** at the points Step 7.2 names: after a commit this skill made has cleared its hook checks, or after the gates re-run green on a commit a hook changed. It never moves otherwise. A commit, reset, or rebase on the same branch keeps the name identical, so the name alone proves nothing. If either value is wrong, stop and ask. Repeat this check before each commit and before the push.
+`git branch --show-current` must equal `<current-branch>`, and `git rev-parse HEAD` must equal `<expected-tip>`. `<expected-tip>` starts as `<starting-commit>`, and moves **only** at the points Step 7.2 names: after a commit this skill made has cleared its hook checks, or after the gates re-run green on a commit a hook changed. It never moves otherwise. If either value is wrong, stop and ask. Repeat this check before each commit and before the push.
 
 ### Step 7.1 — Stage an explicit allowlist per commit
 
@@ -500,6 +494,4 @@ State, per the repo's handoff checklist if it has one:
 - This branch's only matching pull requests are closed or merged, or the open one targets a different base — asked during Step 7.5 *Decide*, before the confirmation.
 - The pull-request lookup changed between *Decide* and *Execute* (Step 7.5).
 
-Handled without asking: a hook-rejected commit is fixed and looped back through Step 6 (Step 7.2), unless Step 6 proves the failure pre-existing. Reported as terminal outcomes, never asked about: a declined, partially pushed, failed, or unverified push (Step 7.4); a skipped pull request — not a GitHub remote, `gh` missing or unauthenticated, destination equal to base, or a failing `gh pr list`/`create`/`edit` (Step 7.5).
-
-Codex being unavailable, dead, or stalled is **not** a stop-and-ask: fall back to the adversarial subagent review automatically and report it (Step 5).
+Handled without asking: a hook-rejected commit is fixed and looped back through Step 6 (Step 7.2), unless Step 6 proves the failure pre-existing. Reported as terminal outcomes, never asked about: a declined, partially pushed, failed, or unverified push (Step 7.4); a skipped pull request — not a GitHub remote, `gh` missing or unauthenticated, destination equal to base, or a failing `gh pr list`/`create`/`edit` (Step 7.5). Codex being unavailable, dead, or stalled falls back to the adversarial subagent review automatically and is reported (Step 5).

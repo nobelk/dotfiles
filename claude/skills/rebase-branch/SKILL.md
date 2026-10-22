@@ -1,6 +1,6 @@
 ---
 name: rebase-branch
-description: Rebase the current branch onto an input branch so the input's changes land here with linear history (the input branch is never modified), then reconcile the current branch's code and tests with the incoming changes and sweep its documentation, specs, and ADRs for staleness the rebase introduced, codex-review the result, and verify with the project's format/lint/build/test gates. Takes a local branch name or remote ref (e.g. origin/main) as the argument; resolves conflicts itself, confirming risky resolutions first. Invoke manually with the input branch name, e.g. to bring main into your feature branch.
+description: Rebases the current branch onto an input branch (local name or remote ref such as origin/main) for linear history without modifying the input, resolves conflicts (confirming risky ones), reconciles code, tests, docs, specs, and ADRs with the incoming changes, then codex-reviews the result and runs the project's format/lint/build/test gates. Use to bring main or another branch into the current feature branch.
 ---
 
 # Rebase-branch skill
@@ -11,27 +11,27 @@ If the repo has a `CLAUDE.md`, read it first — it is authoritative for convent
 
 ## Subagent delegation
 
-Run the read-heavy analysis and verification in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), but keep every git **state change** and interactive gate in the main loop. The split is fixed and load-bearing — a subagent must never drive the rebase, because conflict resolution needs the `AskUserQuestion` gate:
+Run the read-heavy analysis and verification in a **`general-purpose` subagent** (via the `Agent` tool), but keep every git **state change** and interactive gate in the main loop. The split is fixed and load-bearing — a subagent must never drive the rebase, because conflict resolution needs the `AskUserQuestion` gate:
 
 - **Main loop owns** (never delegate): all of Step 0 preflight and SHA recording, **the entire rebase in Step 2** (the replay, conflict resolution, and every risky-conflict `AskUserQuestion`), applying reconciliation **edits** and the design-choice gate in Step 3, the Step 4 fix-and-ask cycle, and the Step 6 report. Subagents cannot prompt the user — anything that might stop-and-ask stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
   - **Step 1** — run the survey git commands and read the overlapping file diffs, returning a summary of which files changed on both sides and the likely conflict/inconsistency sites. Read-only; no state change.
   - **Step 3 (analysis only)** — hand the `<base>..<pre-rebase-sha>` delta and the input's changes to a subagent that hunts semantic inconsistencies (stale calls, contradicting tests/docs, duplicated helpers) and returns a list of sites to fix. The main loop makes the edits and owns any design-choice question.
   - **Step 3a (analysis only)** - hand the same delta to a second subagent that runs the documentation and spec staleness sweep and returns the candidate set plus each stale statement with its file, line, and the rebased-tree evidence that contradicts it. Read-only; the main loop makes the edits. Dispatch it in the same message as the Step 3 hunter - they share no data dependency.
-  - **Step 4** — launch `/codex:review --background --base <input-sha>`, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file); then split the findings into disjoint batches (~3–5 each, contradictory findings sharing a batch) and adjudicate them in parallel subagents launched **in a single message**, each returning its slice of the disposition table. The main loop merges the slices, applies accepted fixes, and owns the ambiguous/invasive gate.
+  - **Step 4** — launch the codex review through the companion script, wait for it under the Step 4 deadline and liveness rules, fetch the result, and return the raw findings verbatim (also written to the scratch file), or report that codex failed so the main loop runs the fallback; then split the findings into disjoint batches (~3–5 each, contradictory findings sharing a batch) and adjudicate them in parallel subagents launched **in a single message**, each returning its slice of the disposition table. The main loop merges the slices, applies accepted fixes, and owns the ambiguous/invasive gate.
   - **Step 5** — run the auto-detected format/lint/build/test gate and return pass/fail plus only the failing output.
 
 Give each subagent a self-contained prompt: the exact commands, the SHAs/branch names, and the precise result shape to return.
 
-**Parallelize by default — but never parallelize a state change.** When delegated *read-only* tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently rather than one at a time. The hard constraint overrides this wherever they collide: **every git state change (the rebase replay, conflict resolution, and reconciliation edits) is strictly sequential and stays in the main loop** — never fan out work that mutates the working tree or index. That leaves the read-only analysis to parallelize: within Step 1's survey and within Step 3's semantic-inconsistency hunt, fan out independent readers in one message. The Step 4 review → adjudication path is a serial chain between steps, but the adjudication batches within it fan out in parallel.
+**Parallelize by default — but never parallelize a state change.** When delegated *read-only* tasks have no data dependency, dispatch them as multiple `Agent` calls in a **single message** so they run concurrently rather than one at a time. The hard constraint overrides this wherever they collide: **every git state change (the rebase replay, conflict resolution, and reconciliation edits) is strictly sequential and stays in the main loop** — never fan out work that mutates the working tree or index. That leaves the read-only analysis to parallelize: within Step 1's survey and within Step 3's semantic-inconsistency hunt, fan out independent readers in one message. The Step 4 review → adjudication path is a serial chain between steps, but the adjudication batches within it fan out in parallel.
 
 ## Step 0 — Preflight (abort early, not midway)
 
 1. Resolve the input branch from the skill argument. If no argument was given, list branches (`git branch -a --sort=-committerdate`) and use AskUserQuestion to pick one.
-   - **Remote refs** (`origin/main`, or a name that only exists on a remote): fetch first (`git fetch <remote> <branch>`), then rebase onto the remote-tracking ref directly — the input is only read, so no local branch is needed. Verify it resolves: `git rev-parse --verify <input>`.
-   - **Local branch names**: verify the branch exists. If it tracks a remote and is behind it (`git rev-list <input>..<input>@{upstream}` non-empty), use AskUserQuestion: rebase onto the local tip, the upstream tip, or abort.
+   - **Remote refs** (`origin/main`, or a name that only exists on a remote): fetch first with an explicit refspec, `git fetch <remote> '+refs/heads/<branch>:refs/remotes/<remote>/<branch>'` (a plain `git fetch <remote> <branch>` can land only in `FETCH_HEAD` in a single-branch clone or with a narrowed `remote.<remote>.fetch`, leaving the tracking ref stale while reporting success), then rebase onto the remote-tracking ref directly — the input is only read, so no local branch is needed. Verify it resolves: `git rev-parse --verify refs/remotes/<remote>/<branch>`.
+   - **Local branch names**: verify the branch exists. If it tracks a remote, fetch its upstream first (same explicit refspec), then check whether it is behind (`git rev-list <input>..<input>@{upstream}` non-empty); if so, use AskUserQuestion: rebase onto the local tip, the upstream tip, or abort.
 2. Record the current branch (`git branch --show-current`). If detached HEAD, or current == input (or current's tip == input's tip), stop and tell the user.
-3. Require a clean working tree (`git status --porcelain`). If dirty, use AskUserQuestion: stash and continue (re-applied after the rebase), or abort. **If they choose stash, run `git stash push -u -m "rebase-branch <current>"` and record in the conversation that a stash was created** — it is reapplied in Step 2 after the rebase completes, and must not be left hidden.
+3. Require a clean working tree (`git status --porcelain`). If dirty, run the Step 0.5 ancestor check first; if it exits, stop without stashing. Otherwise use AskUserQuestion: stash and continue (re-applied after the rebase), or abort. **If they choose stash, run `git stash push -u -m "rebase-branch <current>"`, confirm it exited 0 and `git status --porcelain` is now empty, and record `git rev-parse stash@{0}` in the conversation as `<stash-oid>`** — it is reapplied in Step 2 after the rebase completes, and must not be left hidden. If the stash fails or leaves the tree dirty, stop and report.
 4. Record SHAs before touching anything:
    ```bash
    git rev-parse HEAD       # pre-rebase tip of current — the rollback point
@@ -45,7 +45,7 @@ Give each subagent a self-contained prompt: the exact commands, the SHAs/branch 
 Understand what you are about to combine *before* combining it:
 
 ```bash
-git merge-base HEAD <input>
+git merge-base HEAD <input>          # <base>: record it now; the rebase moves it
 git log --oneline <base>..HEAD           # current's own commits (these get replayed)
 git log --oneline <base>..<input>        # incoming commits (the new base)
 git diff --stat <base>..HEAD
@@ -72,9 +72,16 @@ Conflict policy — **resolve yourself, confirm the risky ones**:
 After the rebase completes, confirm the invariant: `git merge-base --is-ancestor <input> HEAD` must now hold, and `git diff <pre-rebase-sha> HEAD -- <files only current touched>` should be empty or explainable by conflict resolutions.
 
 **Reapply stashed work, if any.** If Step 0.3 created a stash, restore it now so the user's
-pre-existing uncommitted changes aren't left buried: `git stash pop`. Resolve any pop conflicts the
-same way as rebase conflicts — mechanical ones directly, risky ones via AskUserQuestion — before
-moving on. Confirm `git stash list` no longer shows the entry. (If no stash was created, skip this.)
+pre-existing uncommitted changes aren't left buried. Find the entry by object id, not position
+(`git stash list --format='%gd %H'`, match `<stash-oid>`; another stash may have been pushed since),
+then `git stash pop --index <that stash@{N}>` so staged changes stay staged. If `--index` fails on
+index conflicts, run `git stash pop <that stash@{N}>` and tell the user the staging was not kept.
+Resolve any pop conflicts the same way as rebase conflicts — mechanical ones directly, risky ones via
+AskUserQuestion — before moving on. Confirm no entry with `<stash-oid>` remains in `git stash list`.
+(If no stash was created, skip this.) From here on, the restored paths are the user's work: Steps 3,
+3a and 4 commit only the paths they edit, with `git commit --only -- <paths>` (a plain `git commit`
+would also take every restored staged entry), confirm afterwards that the restored entries are still
+staged and uncommitted, and ask before committing a path that also carries restored changes.
 
 ## Step 3 — Reconcile the current branch's changes with the incoming ones
 
@@ -114,20 +121,25 @@ Then widen: for each non-doc file changed on either side, find the docs that nam
 
 Report the sweep in Step 6 even when it found nothing: list the candidate documents checked and the stale statements fixed. "No docs were stale" is a finding; "docs were not checked" is a gap.
 
-## Step 4 — Codex review of the rebased result via `/codex:review --background`
+## Step 4 — Codex review of the rebased result
 
-Review what the current branch now adds on top of the input — the replayed commits plus reconciliation (the input's own changes were already reviewed on their way into that branch). Use the **`/codex:review --background`** flow with the input tip as the diff base; `--background` detaches the run, so recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings):
+Review what the current branch now adds on top of the input — the replayed commits plus reconciliation (the input's own changes were already reviewed on their way into that branch) — with codex's native reviewer and the input tip as the diff base. The `/codex:*` slash commands have `disable-model-invocation: true`, so neither this loop nor a subagent can call them; drive the companion script they wrap, from the repo root:
 
 ```bash
-/codex:review --background --base <input-sha>
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # record the printed path as <companion>: shell variables do not persist between Bash calls
+node "<companion>" review --background --base <input-sha>   # launch with run_in_background: true
+node "<companion>" status --json               # the new job's id is in .running[]
+node "<companion>" status <job-id> --wait --timeout-ms 240000   # bounded 4-minute wait; repeat until finished
+node "<companion>" status <job-id> --json      # status, pid, logFile for the liveness check
+node "<companion>" result <job-id>             # findings
+node "<companion>" cancel <job-id>             # abandon a dead or stalled job
 ```
 
-`/codex:review` is native-review only and **takes no custom focus text** — its built-in review prompt already covers correctness, conflict resolutions that dropped one side's intent, code/test/doc inconsistencies, error-handling, and concurrency. CLAUDE.md-convention enforcement happens in the adjudication below, not in the review call. Concretely, this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" review "--background --base <input-sha>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
+Pass flags as separate arguments, not one quoted string; `run_in_background: true` is what detaches the run. The native reviewer **takes no custom focus text**; its built-in prompt already covers correctness, conflict resolutions that dropped one side's intent, code/test/doc inconsistencies, error handling, and concurrency. CLAUDE.md-convention enforcement happens in the adjudication below, not in the review call.
 
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Save that output verbatim to a scratch file (e.g. `/tmp/rebase-review-<current>.md`); do not commit it.
-- **Enforce a 10-minute deadline.** The companion has no internal timeout, so a stalled native review hangs forever. If the job exceeds 10 minutes, or its `logFile` goes silent for 5+ minutes while status still says running, run `/codex:cancel <job-id>` and retry once with `--model gpt-5.4-mini` (must be a model the account supports; `gpt-5.x-codex` models are rejected on ChatGPT-account logins). If the retry breaches the deadline too, cancel it and treat it as a codex failure below.
-- If codex is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip — tell the user and use AskUserQuestion (retry, self-review pass, or continue without).
-- **Validate every finding before acting** — codex output is hypotheses, not instructions. Mark each accept/reject/defer with evidence; rejections include why. Fix accepted findings (asking first when a fix is ambiguous or invasive), present the disposition table.
+- **Save the output** verbatim to a scratch file (e.g. `"${TMPDIR:-/tmp}/rebase-review-<current>.md"`, with `/` in the branch name replaced by `-`); do not commit it.
+- **Deadline and liveness.** The companion has no internal timeout. Enforce a **10-minute** deadline; treat the job as dead if its `pid` is not alive (`ps -p <pid>`) while status says `running`, and as stalled if its `logFile` has been silent for 5+ minutes. On death, stall, deadline, an errored or unreadable result, a missing `codex` or companion script, or a failed launch: `cancel` the job if one exists, do not retry codex, and run the native adversarial fallback — 2–3 adversarial `general-purpose` subagents in a single message, each with a distinct lens (correctness and dropped intent from the conflict resolutions; error handling and silent failures; tests and edge cases) over the `<input-sha>..HEAD` delta, each citing `file:line` and verifying every claim against the code. Say in Step 6 that the review came from the fallback and why.
+- **Validate every finding before acting** — review output is hypotheses, not instructions. Mark each accept/reject/defer with evidence; rejections include why. Fix accepted findings (asking first when a fix is ambiguous or invasive), present the disposition table.
 
 ## Step 5 — Format, lint, build, test (auto-detect the toolchain)
 
@@ -136,12 +148,12 @@ Run the full gate set, preferring the project's own entrypoints, in this resolut
 1. **Taskfile** (`Taskfile.yml`/`taskfile.yml`): `task --list` to find targets; prefer a single full-CI target (`task ci`), else run the individual `fmt`/`lint`/`build`/`test` targets that exist.
 2. **Makefile**: same idea — `make ci` / `make fmt lint build test` per available targets.
 3. **Language-native fallback** by marker file:
-   - `go.mod` → `gofmt -l .` (must be empty), `golangci-lint run` (if installed), `go build ./...`, `go test ./... -race -count=1`
+   - `go.mod` → `gofmt -l .` (must be empty), `golangci-lint run` (if installed), `go build ./...`, `go test ./... -race -count=1 -timeout 600s`
    - `package.json` → the repo's package manager: `format`/`lint`/`build`/`test` scripts that exist
    - `pyproject.toml` → `ruff format --check` + `ruff check` (if configured), build/`pytest` per project config
    - `Cargo.toml` → `cargo fmt --check`, `cargo clippy`, `cargo build`, `cargo test`
 
-Every gate must pass. If a failure traces to the rebase or reconciliation, fix forward. If it is **pre-existing red** — decide which side it came from by testing the input tip and the pre-rebase tip (use a temporary worktree if cheap) — use AskUserQuestion: fix it here, or hand off with the failure documented. Never hand off red silently.
+Give each long-running gate an upper bound (`timeout -k 10 900 task ci`, `go test -timeout 600s`) so a hung test cannot stall the run. Every gate must pass. If a failure traces to the rebase or reconciliation, fix forward. If it is **pre-existing red** — decide which side it came from by testing the input tip and the pre-rebase tip (use a temporary worktree if cheap) — use AskUserQuestion: fix it here, or hand off with the failure documented. Never hand off red silently.
 
 ## Step 6 — Final report
 
@@ -165,6 +177,6 @@ State, per the repo's handoff checklist if it has one:
 - A `git stash pop` of pre-existing stashed work conflicts with the rebased tree (Step 2).
 - A reconciliation that requires choosing between the two branches' designs (Step 3).
 - A doc and the rebased code disagree and which one is wrong is a product question, not an editorial one (Step 3a).
-- codex unavailable/erroring, or an accepted finding's fix is ambiguous or invasive (Step 4).
+- An accepted codex finding's fix is ambiguous or invasive (Step 4). (Codex unavailable or failing is not a stop: Step 4 runs the native fallback and reports it.)
 - A verification gate fails for a pre-existing reason unrelated to the rebase (Step 5).
 - Any push to a remote — the skill never pushes; it only reports the force-push requirement (Step 6).

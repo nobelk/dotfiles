@@ -1,6 +1,6 @@
 ---
 name: changelog
-description: Update CHANGELOG.md before merging a branch. Adds bullets under today's date heading summarizing the work done since the default branch. If CHANGELOG.md does not exist, bootstraps it from git history grouped by date. Invoke manually before merging a feature branch.
+description: Updates CHANGELOG.md before a branch is merged, adding past-tense, user-visible bullets under today's date for the work since the default branch; bootstraps the file from git history grouped by date when it does not exist. Use before merging a feature branch or when asked to update or create a changelog.
 ---
 
 # Changelog skill
@@ -27,14 +27,14 @@ Conventions:
 
 ## Subagent delegation
 
-Run the expensive, self-contained drafting work in a **`general-purpose` subagent** (via the `Agent`/`Task` tool); keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained drafting work in a **`general-purpose` subagent** (via the `Agent` tool); keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate): the `<base>`/branch/dirty-tree inspection in Step 1, the decision of which scope to record, writing/editing `CHANGELOG.md`, showing the final `git diff`, and any question to the user. Subagents cannot prompt the user, so the "ask whether to include uncommitted work" gate in Step 2b stays here.
-- **Delegate to a `general-purpose` subagent**: the bullet-drafting in Step 2a (bootstrap) and Step 2b (update) — pass the resolved `<base>` and commit range, and have the subagent run `git log` / `git show <sha> --stat` to reword opaque subjects, returning **only** the proposed `# Changelog` body (bootstrap) or the new bullet list (update). The verbose history stays in the subagent's context; the main loop writes the returned text to disk.
+- **Delegate to a `general-purpose` subagent**: the bullet-drafting in Step 2a (bootstrap) and Step 2b (update) — pass the resolved `<base>` and commit range (plus `git diff HEAD --stat` and the untracked-file list when the user chose to include uncommitted work), and have the subagent run `git log` / `git show <sha> --stat` to reword opaque subjects, returning **only** the proposed `# Changelog` body (bootstrap) or the new bullet list (update). The verbose history stays in the subagent's context; the main loop writes the returned text to disk.
 
 Give the subagent a self-contained prompt: the exact commit range, the file-format conventions above, and the precise result shape to return. The main loop never delegates the file write itself.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in one message rather than one at a time. In **update mode** (Step 2b) there is a single drafting subagent and no independent peer — keep that one call as-is. In **bootstrap mode** (Step 2a) over a large history (roughly 100+ commits), split the `git log` output into contiguous date ranges and launch one drafting subagent per range **in a single message**, each receiving its exact commit range and the file-format conventions and returning only its range's `## YYYY-MM-DD` sections; the main loop concatenates the returned sections newest-first and writes the file. The ranges are disjoint so the drafts share no state; the `CHANGELOG.md` write itself is never parallelized.
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent` calls in one message rather than one at a time. In **update mode** (Step 2b) there is a single drafting subagent and no independent peer — keep that one call as-is. In **bootstrap mode** (Step 2a) over a large history (roughly 100+ commits), split the `git log` output into contiguous date ranges and launch one drafting subagent per range **in a single message**, each receiving its exact commit range and the file-format conventions and returning only its range's `## YYYY-MM-DD` sections; the main loop concatenates the returned sections newest-first and writes the file. The ranges are disjoint so the drafts share no state; the `CHANGELOG.md` write itself is never parallelized.
 
 ## Step 1 — Inspect state
 
@@ -48,19 +48,22 @@ git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null \
 
 `<base>` is a remote-tracking ref (`origin/main`) when `origin/HEAD` is set, else the local
 `main`/`master` fallback — both work as the `git log <base>..HEAD` left side. (Don't strip
-`origin/`: a bare `main` fails in clones with no local default branch.)
+`origin/`: a bare `main` fails in clones with no local default branch.) If the command prints
+nothing (no `origin/HEAD` and no `main`/`master`), use `AskUserQuestion` to ask which branch to
+diff against, offering the local branches found; the free-text option covers any other ref.
 
 Then run in parallel:
 - `test -f CHANGELOG.md && echo exists || echo missing`
 - `git rev-parse --abbrev-ref HEAD`
 - `git log <base>..HEAD --pretty=format:"%h %ad %s" --date=short --no-merges` (commits to summarize for an update; empty if on `<base>` itself)
 - `git status --short` (uncommitted work)
+- `date +%F` (today's local date, for the heading)
 
 ## Step 2a — If CHANGELOG.md is missing: bootstrap
 
 1. Get full history: `git log --pretty=format:"%h%x09%ad%x09%s" --date=short --no-merges`
 2. Group commits by date.
-3. Write `CHANGELOG.md` with `# Changelog` at the top, then `## YYYY-MM-DD` sections newest first, with one bullet per commit.
+3. Write `CHANGELOG.md` with `# Changelog` at the top, then `## YYYY-MM-DD` sections newest first, with bullets per *Writing good bullets* below (one per logical change; noise skipped).
 4. Rewrite terse commit subjects into user-facing bullets when obviously needed (e.g., `fix bug` → `Fixed crash on empty input`). Don't fabricate detail you can't verify — if a commit subject is opaque, run `git show <sha> --stat` to see what changed before rewording.
 5. Show the user the result. Stop.
 
@@ -83,7 +86,6 @@ Then run in parallel:
 
 ## Notes
 
-- "Today" means the local date; obtain it from the system, not from commit timestamps.
+- "Today" means the local date from `date +%F`, not commit timestamps.
 - Never amend an existing dated section other than today's — past entries are historical.
 - Don't commit the CHANGELOG.md update yourself; let the user fold it into their merge.
-- If the repo has no remote and no `main`/`master` branch, use `AskUserQuestion` to ask which branch to diff against (offer the local branches found; the free-text option covers any other ref).

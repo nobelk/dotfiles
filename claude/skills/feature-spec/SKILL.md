@@ -1,6 +1,6 @@
 ---
 name: feature-spec
-description: Scaffold the planning docs for the next roadmap phase — creates a specs/<name> git branch in its own git worktree (reusing a worktree that already has the branch), rebases that branch onto the default branch via the rebase-branch skill so the specs are written against current code, settles scope, key decisions, and validation with the user in a grilling session (the grilling skill), writes specs/<name>/{plan.md, requirements.md, validation.md}, then codex-reviews the specs, folds validated findings back in, commits the spec files, and pushes the specs/<name> branch to origin. Takes a git branch name as the argument (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Invoke manually when starting a new feature.
+description: Writes the planning spec for the next roadmap phase. Grills the user on scope, key decisions, and validation, then writes specs/<name>/{requirements,plan,validation}.md on a specs/<name> branch in its own git worktree, codex-reviews the files, commits them, and pushes the branch. Takes a branch name (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Use when starting a new feature or speccing the next roadmap phase.
 ---
 
 # Feature spec skill
@@ -13,23 +13,23 @@ Two related identifiers, derived from one input:
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent`/`Task` tool), and keep orchestration in the main loop. The split is fixed:
+Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent` tool), and keep orchestration in the main loop. The split is fixed:
 
 - **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the **`rebase-branch` invocation** (Step 2a) and every gate it raises, the Step 3 grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the settled decisions), the Step 7 commit and push, and the Step 8 report. Subagents cannot prompt the user, so every gate stays here.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
-  - **Step 5** — launch the `/codex:adversarial-review --background` review of the three spec files, poll `/codex:status` to completion, fetch `/codex:result <job-id>`, and return the raw findings verbatim (also written to the scratch file). The codex transcript stays in the subagent.
+  - **Step 5** — launch the codex adversarial review of the three spec files with the exact commands in Step 5, wait for it under Step 5's deadline, fetch the result, and return the raw findings verbatim (also written to the scratch file), or `codex failed: <reason>`. The codex transcript stays in the subagent.
   - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 settled decisions and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a settled decision back to the user here (see Step 6) — never in a subagent.
 
 Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent`/`Task` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The Step 5 codex run → Step 6 adjudication is a serial chain (findings must exist before adjudication), but **within** Step 6 the adjudication batches fan out in parallel; and the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
+**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The Step 5 codex run → Step 6 adjudication is a serial chain (findings must exist before adjudication), but **within** Step 6 the adjudication batches fan out in parallel; and the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
 
 ## Step 0 — Read and normalize the branch name input
 
 The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefly`, `specs/auth-revamp`).
 
 - If an argument is provided, normalize it: if it does not already start with `specs/`, prepend `specs/` to form `<branch-name>` (so `feat-x` becomes `specs/feat-x`). Skip the slug-derivation step in Step 2.
-- If no argument is provided, fall back to deriving `<branch-name>` as `specs/<today>-<feature-name>` per Step 2.
+- If no argument is provided, fall back to deriving `<branch-name>` as `specs/<today>-<feature-name>` per Step 2. The name does not exist yet, so run the validation and worktree discovery below in Step 2, right after the derivation.
 - Validate the normalized name with `git check-ref-format --branch "<branch-name>"`. If invalid, stop and ask the user for a corrected name — do not silently sanitize.
 - **Worktree discovery** — run `git worktree list --porcelain` and look for a `branch refs/heads/<branch-name>` entry:
   - A worktree already has the branch checked out → reuse it: record its root as the working directory for every subsequent step and skip creation in Step 2.
@@ -55,6 +55,8 @@ If the user supplied a branch name in Step 0, use the normalized `specs/`-prefix
 Otherwise, derive `<branch-name>` as `specs/<today>-<feature-name>`:
 - `<feature-name>`: kebab-case, ≤4 words, derived from the phase name on the roadmap.
 - `<today>`: the local date in `YYYY-MM-DD`.
+
+Then run Step 0's `check-ref-format` validation and worktree discovery on the derived name before going on.
 
 Resolve the default branch. The result is `<base>`; the branch name it is built from is
 `<default-branch-name>` — a **different** identifier from the `<name>` defined above (which is the
@@ -145,7 +147,7 @@ Rationale: `requirements.md`, `plan.md`, and `validation.md` describe code that 
 
 The first is an unconditional hard stop; the second is a decision the user must make before the rebase runs. Neither may be worked around silently.
 
-- **Staged changes in the worktree — hard stop.** If `git diff --cached --name-only` is non-empty, report and end the run. `rebase-branch`'s dirty-tree gate stashes with `git stash push -u` and restores with `git stash pop` (no `--index`), which silently demotes staged changes to unstaged — that both loses the user's staging and hides pre-staged work from the Step 7 preflight, which would then pass on a tree it was meant to reject. Leave the index exactly as found and let the user deal with it.
+- **Staged changes in the worktree — hard stop.** If `git diff --cached --name-only` is non-empty, report and end the run. `rebase-branch`'s dirty-tree gate stashes with `git stash push -u` and restores with `git stash pop --index`, falling back to a plain `git stash pop` on index conflicts, which silently demotes staged changes to unstaged — that both loses the user's staging and hides pre-staged work from the Step 7 preflight, which would then pass on a tree it was meant to reject. Leave the index exactly as found and let the user deal with it.
 - **A reused branch whose rewritten history is already published — decision gate.** Test the branch's *publication destination*, which is `origin/<branch-name>` (where Step 7 pushes), not `@{upstream}` — a branch can already exist at that destination with no upstream configured, or track somewhere else entirely:
 
   ```bash
@@ -161,7 +163,7 @@ The first is an unconditional hard stop; the second is a decision the user must 
   - `ls-remote` **exit 0**, and `rev-list` **empty** — every published commit is already contained in `<base>`, so the replay rewrites nothing that is published. No question.
   - `ls-remote` **exit 0**, and `rev-list` **non-empty** — published commits sit above `<base>`. Unless `<base>` is already an ancestor of `HEAD` (in which case `rebase-branch` exits early and replays nothing — check `git merge-base --is-ancestor <base> HEAD` first and skip the question if it holds), the rebase replays them onto a new base and gives them new SHAs.
 
-  In that last case the Step 7 `git push -u origin <branch-name>` is non-fast-forward, and Step 7 forbids force-pushing. Discovering that *after* writing and committing specs is the failure this gate exists to prevent, so resolve it here with `AskUserQuestion`: **rebase and force-push with `--force-with-lease` in Step 7** (record the approval — it is the only thing that unlocks the Step 7 carve-out), **skip the rebase and spec against the branch as-is** (note the staleness in the Step 8 report), or **pick a different branch name** (loop back through Step 0).
+  In that last case the Step 7 `git push -u origin <branch-name>` is non-fast-forward, and Step 7 forbids force-pushing. Discovering that *after* writing and committing specs is the failure this gate exists to prevent, so resolve it here with `AskUserQuestion`: **rebase and force-push with `--force-with-lease` in Step 7** (record the approval and the inspected remote tip, `git rev-parse refs/remotes/origin/<branch-name>`, as `<published-oid>` — together they are the only thing that unlocks the Step 7 carve-out; also confirm `git merge-base --is-ancestor <published-oid> HEAD` holds, so no remote-only commit is overwritten), **skip the rebase and spec against the branch as-is** (note the staleness in the Step 8 report), or **pick a different branch name** (loop back through Step 0).
 
 ### Running it
 
@@ -243,21 +245,26 @@ Each task group then states only what is concrete to it - its tests, the package
 - **Checklist** - concrete checkboxes: tests to add, the repo's own quality gates (format, lint, build, full test suite, and any architecture/static-analysis checks it defines), manual checks, metrics/dashboards to confirm.
 - **Done when** — one line naming the binary signal (test passes, metric crosses threshold, etc.).
 
-## Step 5 — Codex review of the spec files via `/codex:adversarial-review --background`
+## Step 5 — Codex review of the spec files (codex adversarial review)
 
-Get an independent second-model review of the three files just written through the **`/codex:adversarial-review --background`** flow. This skill uses adversarial-review rather than plain `/codex:review` because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which `/codex:review` cannot carry. The three spec files — newly created or, in the overwrite/append case, modified — are the working-tree change the review scopes over; the focus text below names them. `--background` detaches the run; recover it with `/codex:status` (progress) and `/codex:result <job-id>` (findings). Run it from the worktree root (the Step 2 `cd` already put you there):
+Get an independent second-model review of the three files just written through the codex plugin's **adversarial review**. This skill uses adversarial review rather than plain review because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which plain review cannot carry. The `/codex:*` slash commands set `disable-model-invocation`, so neither the main loop nor a subagent can run them through the Skill tool; the Step 5 subagent runs the companion script those commands wrap. `--scope working-tree` pins the review to the uncommitted change, which is the three spec files (newly created or, in the overwrite/append case, modified); the focus text names them. Run from the worktree root (the Step 2 `cd` already put you there):
 
 ```bash
-/codex:adversarial-review --background "<focus>"
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | sort -V | tail -1   # -> <companion>
+# Bash tool with run_in_background: true; timeout bounds the process (see ~/.claude/AGENTS.MD)
+timeout -k 10 660 node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"
 ```
+
+Shell variables do not persist between Bash calls, so substitute the resolved `<companion>` path literally in every command. Pass the flags as separate arguments and `<focus>` as its own argument after `--`, as above. The companion re-splits a single combined string with its own parser, which rewrites quotes and can turn focus text into options.
 
 With `<focus>`:
 
 > Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md / any convention or architecture docs it cites, if they exist — the specs must be consistent with them. Review for: internal contradictions between the three files, scope items in plan.md missing from requirements.md (and vice versa), validation criteria that don't actually verify the stated requirements, ambiguous or untestable acceptance criteria, missing edge cases or risks, and conflicts with the roadmap/mission/tech-stack. Also check plan.md's task groups against the repo's engineering standards: TDD sequencing (tests listed before the code they pin), respect for the repo's dependency/layering boundaries, overengineered or needless abstractions, and steps that would produce non-idiomatic or untestable code. For each finding output a numbered item with: file, the issue, and the suggested change. Output findings only — do not rewrite the documents.
 
-Concretely this launches the codex-companion runtime detached (`node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" adversarial-review "--background <focus>"` with `run_in_background: true`, where `${CLAUDE_PLUGIN_ROOT}` is the codex plugin root).
-- **Do not block the launching turn.** After launching, poll `/codex:status` until the job finishes, then read `/codex:result <job-id>`. Capture that output verbatim to a scratch file (e.g. `/tmp/codex-spec-review-<name>.md`) so Step 6 is auditable. Do **not** commit this file.
-- If `codex` is not installed, the launch fails, or `/codex:status` reports the job errored, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer these options, named exactly so the choice is unambiguous: **retry the codex review**, **substitute a self-review pass** (then continue to Step 6 and Step 7), **skip the review and commit/push the unreviewed specs**, or **skip the review and stop without committing or pushing**. Enter Step 7 only when the chosen option explicitly permits it; the Step 8 report names the option taken.
+- **Do not block the launching turn.** Find the job id with `node "<companion>" status` (the newest adversarial-review job), then poll `node "<companion>" status <job-id> --wait --timeout-ms 240000 --json` (a 4-minute bounded wait that also shows `pid` and `logFile`) until the job finishes, then read `node "<companion>" result <job-id>`. Capture that output verbatim to a scratch file (`/tmp/codex-spec-review-<slug>.md`, `<slug>` as defined in Step 2) so Step 6 is auditable. Do **not** commit this file.
+- **Deadline.** The companion has no internal timeout. Allow 10 minutes from launch. Treat the job as stalled when its `pid` is dead while status still says running, or when its log file has been silent for 5 minutes. On a stall or the deadline, run `node "<companion>" cancel <job-id>` and return `codex failed: <reason>`.
+- **Companion missing** (no path resolves): fall back to a one-shot run in the subagent, `timeout -k 10 600 codex exec --sandbox read-only -o /tmp/codex-spec-review-<slug>.md "<focus>"`. A non-zero exit (124, or 137 after the kill, is the timeout) or an empty output file is `codex failed: <reason>`.
+- If `codex` itself is missing, the launch fails, the job errored, or the subagent returned `codex failed`, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer these options, named exactly so the choice is unambiguous: **retry the codex review**, **substitute a self-review pass** (then continue to Step 6 and Step 7), **skip the review and commit/push the unreviewed specs**, or **skip the review and stop without committing or pushing**. Enter Step 7 only when the chosen option explicitly permits it; the Step 8 report names the option taken.
 
 ## Step 6 — Validate the findings and update the specs
 
@@ -293,7 +300,7 @@ With the disposition table applied, commit the spec files and push the branch. T
    ```
    Any non-zero exit (missing/invalid remote, network, auth, protected branch, non-fast-forward) is a stop: report the exact error, leave the commit in place, do not retry with `--force` or another remote.
 
-   **Single carve-out:** if, and only if, the user explicitly chose "rebase and force-push with `--force-with-lease`" at the Step 2a published-history gate, a non-fast-forward rejection here is the expected consequence of that approved rewrite — retry once as `git push -u --force-with-lease origin <branch-name>` — keeping `-u`, so the tracking relationship this step promises is still established — and name the approval in the Step 8 report. Never `--force`, never a second remote, and never this path without that recorded approval. Do not open a PR unless the user asks; pushing the branch is where this skill stops.
+   **Single carve-out:** if, and only if, the user explicitly chose "rebase and force-push with `--force-with-lease`" at the Step 2a published-history gate, a non-fast-forward rejection here is the expected consequence of that approved rewrite — retry once as `git push -u --force-with-lease=refs/heads/<branch-name>:<published-oid> origin <branch-name>` (pinned to the inspected tip, so a collaborator's later push is never overwritten) — keeping `-u`, so the tracking relationship this step promises is still established — and name the approval in the Step 8 report. Never `--force`, never a second remote, and never this path without that recorded approval. Do not open a PR unless the user asks; pushing the branch is where this skill stops.
 
 ## Step 8 — Report
 

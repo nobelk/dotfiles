@@ -1,6 +1,6 @@
 ---
 name: clean-code
-description: Review the current branch's spec and its implementation, then write a simplification plan to simplify-<branch>.md covering clean code, clean architecture, design patterns, idiomatic style, and deduplication across production code, test code, and code organization — settling open questions with the user in a grilling session (the grilling skill), codex-reviewing the plan and folding in validated findings, then measuring test coverage and closing the high-priority gaps before running the project's format/lint/build/test gates and committing, pushing, and opening or updating the GitHub PR. Invoke manually when a branch's work is functionally complete and you want it cleaned up before review.
+description: Reviews the current branch against its spec and writes a codex-reviewed simplification plan (simplify-<branch>.md) covering clean code, architecture, design patterns, idiom, and deduplication in production and test code, then closes the high-priority test-coverage gaps, runs the project's gates, and commits, pushes, and opens or updates the GitHub PR. Plans the refactor; does not apply it. Use when a branch is functionally complete and needs cleanup before review.
 ---
 
 # Clean-code skill
@@ -39,7 +39,7 @@ The plan is only as good as the standards it is written against. These are the a
 
 ## Subagent delegation
 
-Run the read-heavy analysis and the verbose command runs in **`general-purpose` subagents** (via the `Agent`/`Task` tool); keep orchestration, judgment, and every gate in the main loop:
+Run the read-heavy analysis and the verbose command runs in **`general-purpose` subagents** (via the `Agent` tool); keep orchestration, judgment, and every gate in the main loop:
 
 - **Main loop owns** (never delegate): all of Step 0's scope and git resolution; **every user gate** - the Step 3 grilling session and every `AskUserQuestion`; subagents cannot prompt the user; **writing and rewriting the plan file** (Step 4, Step 5c's finalization, Step 7's reconciliation); the final accept/reject/defer calls in Step 5c; **invoking other skills**, since the Skill tool runs in this conversation and cannot be launched from inside a subagent; the Step 8 commit, push, and PR; and the Step 9 report.
 - **Delegate to a `general-purpose` subagent** (each returns a compact result):
@@ -53,11 +53,12 @@ Run the read-heavy analysis and the verbose command runs in **`general-purpose` 
 
 Give each subagent a self-contained prompt: the exact commands, the changed-file list from Step 0, the repo standards it must judge against, and the precise result shape to return. **A delegated subagent that hits a stop-and-ask condition must return a `needs user decision` status to the main loop rather than guessing** — it cannot prompt, and proceeding on its own assumption is the failure this rule exists to prevent.
 
-**Parallelize by default; never parallelize a write conflict.** Dispatch independent work as multiple `Agent`/`Task` calls in a **single message**. Step 1's reads fan out. Step 2's six review axes fan out — they are read-only over the same files, which is exactly the safe case. Step 5c's adjudication batches fan out. Step 7's test-writing fans out **only after a write-set check**: one subagent per test file, and anything touching a shared surface (a shared fixture or helper, a regenerated mock, a manifest, a production seam extraction) lands first in the main loop or a single upstream subagent before the rest go parallel. Step 5a → Step 5c is a genuine producer→consumer chain and stays serial.
+**Parallelize by default; never parallelize a write conflict.** Dispatch independent work as multiple `Agent` calls in a **single message**. Step 1's reads fan out. Step 2's six review axes fan out — they are read-only over the same files, which is exactly the safe case. Step 5c's adjudication batches fan out. Step 7's test-writing fans out **only after a write-set check**: one subagent per test file, and anything touching a shared surface (a shared fixture or helper, a regenerated mock, a manifest, a production seam extraction) lands first in the main loop or a single upstream subagent before the rest go parallel. Step 5a → Step 5c is a genuine producer→consumer chain and stays serial.
 
 ## Conventions for every command in this skill
 
 - **Never paste a resolved value into shell source.** Branch names, paths, and remotes can contain `$( )`, backticks, spaces, or a leading `-`. Bind each to a shell variable and use it quoted (`"$current_branch"`), or pass it as an argument — never splice the literal text into a double-quoted command line. Build multi-package/module argument lists as arrays (`"${pkgs[@]}"`), not as a space-joined string.
+- **Shell state does not survive between Bash tool calls.** Record every resolved value (`<current-branch>`, `$tmp`, `$base_oid`, `$job_id`, …) in the conversation and re-bind the variables a command needs at its start, single-quoted (`tmp='/tmp/tmp.abc'`). Write snippets that run in both bash and zsh — the tool may run either — so no `mapfile`/`readarray`; read lines into an array with `while IFS= read -r line; do arr+=("$line"); done <<< "$raw"`.
 - **`--` means different things to different tools — do not apply one habit everywhere.**
   - *Git commands that take pathspecs* (`add`, `diff`, `log`, `restore`, `checkout`): `--` separates **pathspecs and nothing else**. Put it before a list of file paths (`git add -- "${paths[@]}"`), and **never put a revision, revision range, remote, or ref after it** — git then reads that argument as a path, which typically "succeeds" with empty output and silently analyzes the wrong thing. Range first, terminator last: `git diff "$base...HEAD" --`, `git log "$oid..HEAD" --`.
   - *Git commands that take no pathspec* (`fetch`, `ls-remote`, `merge-base`, `rev-parse`, `remote`, `worktree`, `push`): no `--` at all. Protect a leading-dash value with `--end-of-options` where the git version supports it, or reject the name outright.
@@ -174,21 +175,22 @@ The plan **must** be independently reviewed before it is finalized, committed, o
 
 ### 5a — Run the codex review
 
-**If the repo/user has the `/codex-review` skill installed, prefer it** — invoke it via the Skill tool in the main loop, giving it the plan path and the focus below. Otherwise drive codex yourself from the repo root, in a subagent so the transcript stays out of the main context.
+Drive codex yourself from the repo root, in a subagent so the transcript stays out of the main context. Do not route this through the `/codex-review` skill: it runs codex's native code review, which cannot carry the focus text below, and it fixes production code, which is outside this run's write set.
 
 The `/codex:*` entries are Claude Code slash commands with `disable-model-invocation: true` — **you cannot call them, and they are not shell commands.** Check availability with `command -v codex`, then run the companion script the plugin wraps:
 
 ```bash
-# Resolve the script once (version dir varies; sort -V so 1.0.10 beats 1.0.9):
-COMPANION=$(ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1)
+# Resolve the script and record its path (version dir varies; sort -V so 1.0.10 beats 1.0.9):
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1
 
-node "$COMPANION" adversarial-review --background -- "$focus"   # launch with run_in_background: true
-node "$COMPANION" status "$job_id" --wait                       # poll (4-min bounded waits)
-node "$COMPANION" result "$job_id"                              # findings
-node "$COMPANION" cancel "$job_id"                              # abandon
+node "$companion" adversarial-review --background -- "$focus"   # launch with run_in_background: true
+node "$companion" status                                        # lists this repo's jobs: take $job_id from it
+node "$companion" status "$job_id" --wait --json                # poll (4-min bounded waits); shows pid and logFile
+node "$companion" result "$job_id"                              # findings
+node "$companion" cancel "$job_id"                              # abandon
 ```
 
-Pass the focus as its **own argument after `--`**, never bundled into a single `"--background <focus>"` string: the companion re-parses a combined string with its own option parser, so quotes get rewritten and focus text containing `--base` or `--scope` turns into options. Use `adversarial-review` rather than `review` — this needs custom focus text, which plain `review` cannot carry. If `$COMPANION` does not resolve (plugin not installed), fall back to a direct one-shot run in the subagent — `codex exec --sandbox read-only "$focus"` — and if `codex` itself is absent, go straight to 5b.
+Pass the focus as its **own argument after `--`**, never bundled into a single `"--background <focus>"` string: the companion re-parses a combined string with its own option parser, so quotes get rewritten and focus text containing `--base` or `--scope` turns into options. Use `adversarial-review` rather than `review` — this needs custom focus text, which plain `review` cannot carry. If no companion path resolves (plugin not installed), fall back to a direct one-shot run in the subagent — `timeout -k 10 600 codex exec --sandbox read-only "$focus"` — and if `codex` itself is absent, go straight to 5b.
 
 `$focus`:
 
@@ -199,9 +201,9 @@ Save the result verbatim to a scratch file under `"$tmp"` so the adjudication is
 **Enforce a deadline and a liveness check** — the review is the second opinion, never the critical path:
 
 - Hard deadline: **10 minutes** for the whole review, not per attempt.
-- Treat the job as **dead now** if its recorded `pid` is not alive (`ps -p "$pid"`) while status still says `running`.
+- Treat the job as **dead now** if its `pid` is not alive (`ps -p "$pid"`) while status still says `running`.
 - Treat it as **stalled** if its log file has been silent for **5+ minutes**.
-- A job that reports **completed but errored**, or whose result is **absent, truncated, or unreadable**, counts as a failed review. A review that completes successfully and reports **no findings** is a *passing* review, not a failed one — require the result to say so explicitly ("No findings") rather than inferring it from an empty file, and the focus text below asks the reviewer for exactly that.
+- A job that reports **completed but errored**, or whose result is **absent, truncated, or unreadable**, counts as a failed review. A review that completes successfully and reports **no findings** is a *passing* review, not a failed one — require the result to say so explicitly ("No findings") rather than inferring it from an empty file, and the focus text above asks the reviewer for exactly that.
 
 On death, stall, deadline, or an unusable result: run the companion's own `cancel` and go to 5b. Do not hand-delete files under the plugin's state directory — the companion owns that index. **Do not retry codex and do not ask whether to retry**: the fallback is deterministic and costs less than a second stall.
 
@@ -299,7 +301,7 @@ git --literal-pathspecs stash push -u -- "${retained[@]}"
 stash_after=$(git rev-parse --verify --quiet refs/stash)
 [ -n "$stash_after" ] && [ "$stash_after" != "$stash_before" ] || stop   # this run created no stash
 # … re-run the failing command …
-git stash pop stash@{0}                                      # verify it restored cleanly before continuing
+git stash pop "stash@{0}"                                    # verify it restored cleanly before continuing
 ```
 
 `--literal-pathspecs` is required, not decorative: `--` marks the arguments as pathspecs but does not make them literal, so a retained filename containing `*` or `[` would match extra files — and an **empty** array drops the path restriction entirely and stashes this run's own work, destroying the very comparison you are making.
@@ -342,11 +344,11 @@ Pushing is outward-facing and hard to walk back, so show the destination and get
 
 ```bash
 push_urls_raw=$(git remote get-url --push --all "$push_remote") || stop   # capture status, don't hide it
-mapfile -t push_urls <<< "$push_urls_raw"                                 # pushurl is multi-valued
+push_urls=(); while IFS= read -r u; do [ -n "$u" ] && push_urls+=("$u"); done <<< "$push_urls_raw"   # pushurl is multi-valued
 [ "${#push_urls[@]}" -gt 0 ] || stop
 ```
 
-Do not run `git remote get-url` inside a process substitution: `mapfile` reports its *own* success, so a failing git call yields an empty array and every endpoint check below then silently passes over nothing. Capture the output, check the exit status, and require a non-empty array before continuing.
+Do not read `git remote get-url` through a process substitution: the reading loop reports its *own* success, so a failing git call yields an empty array and every endpoint check below then silently passes over nothing. Capture the output, check the exit status, and require a non-empty array before continuing.
 
 **Probe the push URLs themselves, always — not the remote name, and not only when there are several.** A remote's `pushurl` can differ from its fetch URL even when there is exactly one, so `git ls-remote "$push_remote"` can report the state of an endpoint this push will never touch:
 
@@ -369,7 +371,7 @@ git merge-base --is-ancestor "$remote_oid" HEAD; echo "$?"   # 0 = fast-forward,
 
 Ranges before the `--`, never after. Distinguish `is-ancestor` exit 1 (genuinely not a fast-forward) from exit >1 (the command itself failed) — treat the latter as unknown and stop. Any other `ls-remote` exit is a transport or auth failure — stop and ask rather than confirming a destination you could not read.
 
-Present the remote, the destination ref, the push URL(s) — **credentials redacted**, since an HTTPS remote can embed `user:token@`; show `https://***@host/path` — and the outgoing commit list: a branch can carry local commits the user forgot about, and "push this branch" is not consent to publish those unseen. If the push would not be a fast-forward, stop and ask; never reach for `--force` on your own.
+Present the remote, the destination ref, the push URL(s) — **credentials redacted**, since an HTTPS remote can embed `user:token@`; show `https://***@host/path` — and the outgoing commit list: a branch can carry local commits the user forgot about, and "push this branch" is not consent to publish those unseen. Include the pull-request decision from the PR lookup below (create / update #N / skip and why), run read-only **before** this confirmation, so the user approves what will actually happen. If the push would not be a fast-forward, stop and ask; never reach for `--force` on your own.
 
 On confirmation, push explicitly and verify the server took it:
 
@@ -393,20 +395,20 @@ If any endpoint cannot be re-probed, the outcome is **unverified** — report it
 
 ### PR
 
-Only after a verified successful push. Resolve the PR identities explicitly — they are not the git ones: `<pr-repo>` (the repository the PR lives in — pass `--repo` on every `gh` call rather than trusting `gh`'s own inference, which can differ from git's), `<pr-head>` — the head as the **create** call needs it: `<dest-branch>` when the PR is opened in the same repository, and the qualified `<owner>:<dest-branch>` when `<push-remote>` is a fork (`<owner>` being the fork's owner). Keep `<dest-branch>` unqualified for the listing call below, which does not accept the qualified form, and `<pr-base>` (the default branch **of `<pr-repo>`**, which for a fork is not the fork's default — this is the value Step 0.1 also uses for the review base).
+Decide before the push confirmation (the lookup is read-only); create or edit only after a verified successful push, re-running the lookup first and stopping to ask if its result changed since the user confirmed. Resolve the PR identities explicitly — they are not the git ones: `<pr-repo>` (the repository the PR lives in — pass `--repo` on every `gh` call rather than trusting `gh`'s own inference, which can differ from git's), `<pr-head>` — the head as the **create** call needs it: `<dest-branch>` when the PR is opened in the same repository, and the qualified `<owner>:<dest-branch>` when `<push-remote>` is a fork (`<owner>` being the fork's owner). Keep `<dest-branch>` unqualified for the listing call below, which does not accept the qualified form, and `<pr-base>` (the default branch **of `<pr-repo>`**, which for a fork is not the fork's default — this is the value Step 0.1 also uses for the review base).
 
 ```bash
-gh pr list --repo "$pr_repo" --head "$dest_branch" --base "$pr_base" --state all --limit 100 \
+gh pr list --repo "$pr_repo" --head "$dest_branch" --state all --limit 100 \
   --json number,url,state,isDraft,headRefName,baseRefName,headRepository,headRepositoryOwner
 ```
 
-Use `gh pr list`, not `gh pr view --head` — `gh pr view` has no `--head` flag, takes the branch positionally, and would fail even when a PR exists. Pass `--head` the **unqualified** branch name: it does not accept `owner:branch`. Because several forks can offer the same branch name, select the match by `headRepositoryOwner`/`headRepository` **and** `baseRefName`, not by branch name alone. Narrow with `--base` and raise `--limit` (the default is 30): post-filtering a truncated page can hide an older matching open PR behind newer same-named ones, so if the result comes back at the limit, page further before concluding there is no match. A successful call returning `[]` means no PR; a **non-zero exit** means a syntax, auth, or transport failure and is a stop, not an absence.
+Use `gh pr list`, not `gh pr view --head` — `gh pr view` has no `--head` flag, takes the branch positionally, and would fail even when a PR exists. Pass `--head` the **unqualified** branch name: it does not accept `owner:branch`. Do **not** pass `--base`: it filters on the server, so a PR from this branch into a different base would vanish and this skill would open a duplicate. Because several forks can offer the same branch name, select the match by `headRepositoryOwner`/`headRepository` (compared case-insensitively) and then check its `baseRefName`, not by branch name alone. Raise `--limit` (the default is 30; `gh pr list` has no pagination cursor): if the result comes back at the limit, re-run with a larger one before concluding there is no match. A successful call returning `[]` means no PR; a **non-zero exit** means a syntax, auth, or transport failure and is a stop, not an absence.
 
 - **No PR** → `gh pr create --repo "$pr_repo" --base "$pr_base" --head "$pr_head" --title "$title" --body-file "$tmp/pr-body.md"`. The qualified `owner:branch` form belongs here, on creation, where it is supported. Always `--body-file` from outside the repo; a long body through `--body` gets mangled by shell quoting.
 - **An open PR whose head repo/owner and base match** → `gh pr edit "$number" --repo "$pr_repo" --body-file "$tmp/pr-body.md"`. Preserve anything a human added — append or amend a clearly-marked section rather than overwriting someone else's text.
-- **Only closed or merged matches**, or a match whose head/base is not what you resolved → stop and ask. Never reopen a closed or merged PR.
+- **Only closed or merged matches**, or an open match whose base is not `<pr-base>` → stop and ask. Never reopen a closed or merged PR, and never retarget a base on your own.
 
-The body states: what the branch does (from the spec, or that no spec was found); that a simplification plan was produced, where it lives, and that **the simplification itself is not implemented** — the plan's items are pending follow-up for `/implement-plan`; what this run *did* deliver (the tests, plus any authorized seam, spec edit, or bug fix, each named); coverage before → after with the high-priority gaps closed and any deferred or left open; whether the plan's review was codex or the native fallback; the gates that ran, including any N/A or waived; and the plan's Non-goals as explicit follow-up. Include any trailers the environment requires for PR descriptions. If `gh` is unavailable or unauthenticated (`gh auth status`), do not fail the run — the branch is pushed: report the exact command the user should run, and say the PR step was not completed.
+The body states: what the branch does (from the spec, or that no spec was found); that a simplification plan was produced, where it lives, and that **the simplification itself is not implemented** — the plan's items are pending follow-up for `/implement-plan`; what this run *did* deliver (the tests, plus any authorized seam, spec edit, or bug fix, each named); coverage before → after with the high-priority gaps closed and any deferred or left open; whether the plan's review was codex or the native fallback; the gates that ran, including any N/A or waived; and the plan's Non-goals as explicit follow-up. Include any trailers the environment requires for PR descriptions. If `gh` is unavailable or unauthenticated (`gh auth status --hostname <host>`), record **skip** as the PR decision and still offer the push — report the exact command the user should run, and say the PR step was not completed.
 
 ## Step 9 — Report
 
@@ -436,7 +438,7 @@ State, per the repo's handoff checklist if it has one:
 - The coverage work surfaces a design decision the plan never named (Step 7).
 - A gate fails in retained dirty files, fails for a reason proven pre-existing, or causation cannot be established (Step 8).
 - A repo-wide formatter modified files outside the write set (Step 8).
-- Every push — always confirm the destination, and disclose multiple push URLs (Step 8).
-- An unreadable `ls-remote`/`gh` response; `merge-base --is-ancestor` exiting >1; the only PR matching the branch is closed, merged, or has a head/base you did not resolve (Step 8).
+- Every push and PR create/update — always confirm the destination and the PR decision, and disclose multiple push URLs (Step 8).
+- An unreadable `ls-remote`/`gh` response; `merge-base --is-ancestor` exiting >1; the only PR matching the branch is closed or merged, or the open one targets a different base; the PR lookup changed after confirmation (Step 8).
 
 **Hard stops (report and end the run; not an AskUserQuestion):** neither codex nor the fallback completed a usable review (Step 5b) — a review that completes with no findings is a success, not this condition — an unreviewed plan is never finalized, committed, or pushed.
