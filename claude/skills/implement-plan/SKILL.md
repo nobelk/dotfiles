@@ -44,7 +44,7 @@ Run expensive, self-contained work in **`general-purpose` subagents** (via the `
 
 Give each subagent a self-contained prompt: the plan file path, the exact scope limits, the commands to run, the principal-engineer posture standards, the TDD requirement, and the precise result shape to return (changed files, red-then-green test evidence, anything it deliberately left out).
 
-**Parallelize by default where there is no data dependency**, dispatching the concurrent calls as multiple `Agent` calls in a **single message**. Step 1's reads are independent — fan them out. Step 5's adjudication batches are independent — fan them out. Step 3's parallelism is conditional and is decided explicitly in that step.
+**Where the steps below name a fan-out and there is no data dependency**, dispatch the concurrent calls as multiple `Agent` calls in a **single message**. Step 1's reads are independent — fan them out. Step 5's adjudication batches are independent — fan them out. Step 3's parallelism is conditional and is decided explicitly in that step.
 
 ## Step 0 — Resolve the plan file and the working state
 
@@ -193,7 +193,7 @@ node "<companion>" result "<job-id>"                          # findings
 node "<companion>" cancel "<job-id>"                          # abandon
 ```
 
-Launch each review with `run_in_background: true`. Pass the flags as separate arguments: a single combined string is re-split by the companion's own parser. If no companion path resolves (plugin not installed), fall back to a direct one-shot run in the subagent — `timeout -k 10 600 codex exec --sandbox read-only "<review prompt naming the file list>"` — and if `codex` itself is absent, go straight to 5b.
+Launch each review with `run_in_background: true`. Pass the flags as separate arguments: a single combined string is re-split by the companion's own parser. If no companion path resolves (plugin not installed), fall back to a direct one-shot run in the subagent — `timeout -k 10 600 codex exec --sandbox read-only "<review prompt naming the file list>" < /dev/null` (the `< /dev/null` is required: in a background run stdin is not a terminal, and `codex exec` waits on it until the timeout kills it) — and if `codex` itself is absent, go straight to 5b.
 
 **When both scopes are non-empty, launch both jobs in the same message** (they are independent), give each its **own** scratch file so the parallel writes don't clobber one path, await both job IDs, then merge the findings and dedupe overlaps by `file:line`. Save every result verbatim to its scratch file (e.g. `/tmp/implement-plan-review-<slug>-working-tree.md`, where `<slug>` is the branch with `/` replaced by `-`, or just use `mktemp`) so the adjudication is auditable. Do not commit those files.
 
@@ -213,11 +213,11 @@ If codex is not installed, its launch fails, or the liveness check fires, **do n
 - **error handling / silent failure / fallback behavior** — what failure gets swallowed?
 - **test coverage / edge cases** — what does the plan require that no test proves?
 
-Instruct each to cite `file:line` and to *verify* every claim against the actual code — no hypotheticals, no style opinions that contradict the repo's conventions. If the repo ships specialized review agents (e.g. `pr-review-toolkit`'s `silent-failure-hunter`, `type-design-analyzer`, `pr-test-analyzer`), prefer the ones that fit the diff and dispatch them concurrently.
+Instruct each to cite `file:line` and to check every claim against the actual code and give each finding a confidence, uncertain ones included; no style opinions that contradict the repo's conventions. If the repo ships specialized review agents (e.g. `pr-review-toolkit`'s `silent-failure-hunter`, `type-design-analyzer`, `pr-test-analyzer`), prefer the ones that fit the diff and dispatch them concurrently.
 
 ### 5c — Validate every finding, then fix (the load-bearing step)
 
-Do **not** apply review comments blindly — they are hypotheses to adjudicate, whatever their source. Split the findings into disjoint batches (~3–5 each; contradictory findings share a batch so one subagent resolves the conflict) and fan out one adjudication subagent per batch in a single message. Each subagent gathers the evidence and **recommends** a disposition; the main loop merges the slices and makes the final call. For each finding:
+Do **not** apply review comments blindly — they are hypotheses to adjudicate, whatever their source. Adjudicate a handful of findings (about five or fewer) in the main loop; for more, split them into disjoint batches (~3–5 each; contradictory findings share a batch so one subagent resolves the conflict) and fan out one adjudication subagent per batch in a single message. Each subagent gathers the evidence and **recommends** a disposition; the main loop merges the slices and makes the final call. For each finding:
 
 1. Open the actual code at the cited location and confirm the issue is real.
 2. Check it against the project rules from Step 1 and the plan's scope.

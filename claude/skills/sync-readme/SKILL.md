@@ -37,7 +37,7 @@ and keep orchestration in the main loop. The split is fixed:
     ADRs), and the test suite. Each returns a tight summary, not raw file contents.
   - **Step 4** — run the codex review of the README and return the raw findings verbatim (also
     written to the scratch file). The codex transcript stays in the subagent.
-  - **Step 5** — split the findings into disjoint batches (~3–5 each; contradictory findings share a
+  - **Step 5** - adjudicate a handful of findings (about five or fewer) in the main loop; for more, split them into disjoint batches (~3–5 each; contradictory findings share a
     batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a
     single message**, each getting the Step 1 summaries and the Step 2 verified-command log and
     returning its slice of the accept/reject/defer disposition table. The main loop merges the slices.
@@ -194,7 +194,7 @@ Pass `<focus>` as its own quoted argument:
 - Enforce a 10-minute deadline. On deadline or a failed job, run `node "<companion>" cancel <job-id>`
   and treat the review as failed.
 - If no companion path resolves (plugin not installed), run
-  `timeout -k 10 600 codex exec --sandbox read-only -o <scratch-file> "<focus>"` instead.
+  `timeout -k 10 600 codex exec --sandbox read-only -o <scratch-file> "<focus>" < /dev/null` instead (the `< /dev/null` is required: in a background run stdin is not a terminal, and `codex exec` waits on it until the timeout kills it).
 - Capture the findings verbatim to a scratch file (e.g. `/tmp/codex-readme-review-<repo>.md`) so
   Step 5 is auditable. Do **not** commit this file.
 - If `codex` is not on `PATH` or the review fails, do not silently skip: tell the user and use

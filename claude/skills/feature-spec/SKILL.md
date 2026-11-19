@@ -1,316 +1,201 @@
 ---
 name: feature-spec
-description: Writes the planning spec for the next roadmap phase. Grills the user on scope, key decisions, and validation, then writes specs/<name>/{requirements,plan,validation}.md on a specs/<name> branch in its own git worktree, codex-reviews the files, commits them, and pushes the branch. Takes a branch name (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Use when starting a new feature or speccing the next roadmap phase.
+description: Writes the planning spec for the next roadmap phase. Grills the user on scope, key decisions, and validation, then writes specs/<name>/{requirements,plan,validation}.md on a specs/<name> branch in its own git worktree, marks the phase `in progress` in specs/roadmap.md, codex-reviews the files, commits them, and pushes the branch. Takes a branch name (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Use when starting a new feature, speccing the next roadmap phase, or turning a /constitution roadmap phase into a buildable plan.
 ---
 
 # Feature spec skill
 
-Scaffold the planning docs for the next phase on the roadmap. Output is three files under `specs/<name>/`, written **after** a grilling session with the user has settled every open decision, then reviewed by codex (OpenAI Codex CLI) with validated findings folded back into the files, then committed and pushed to the remote `specs/<name>` branch.
+Turn one roadmap phase into three planning docs under `specs/<name>/`: `requirements.md`, `plan.md`, `validation.md`. They are written only after a grilling session has settled every open decision. Codex then reviews them, the valid findings are folded back in, and the result is committed and pushed on its own `specs/<name>` branch. `/implement-plan` builds from `plan.md` later.
 
-Two related identifiers, derived from one input:
-- `<branch-name>` — the git branch, **always** namespaced under `specs/` (e.g. `specs/2026-05-05-firefly`).
-- `<name>` — `<branch-name>` with the leading `specs/` stripped; names the docs directory `specs/<name>/`. Stripping the prefix avoids `specs/specs/...` nesting.
+There are two identifiers, both derived from one input:
+- `<branch-name>` is the git branch, always under `specs/` (e.g. `specs/2026-05-05-firefly`).
+- `<name>` is `<branch-name>` without the leading `specs/`. It names the docs directory `specs/<name>/`, which avoids `specs/specs/...` nesting.
 
 ## Subagent delegation
 
-Run the expensive, self-contained steps in a **`general-purpose` subagent** (via the `Agent` tool), and keep orchestration in the main loop. The split is fixed:
+- **Main loop owns:** name normalization and worktree setup (Steps 0-2a), the grilling session (Step 3; the Skill tool runs in this conversation and subagents cannot prompt the user), writing the spec files (Step 4), every `AskUserQuestion`, routing decision-changing findings back to the user, the commit and push (Step 7), and the report.
+- **Delegate to `general-purpose` subagents:**
+  - **Step 5:** launch the codex review, wait for it under the deadline, and return the raw findings verbatim (or `codex failed: <reason>`). The codex transcript stays in the subagent.
+  - **Step 6, only with more than about 5 findings:** split them into disjoint batches of 3-5 (contradictory findings share a batch) and launch one adjudication subagent per batch in a single message. Each one gets the settled decisions and the mission/tech-stack constraints, and returns its slice of the disposition table.
 
-- **Main loop owns** (never delegate): branch-name normalization and the **worktree discovery/creation** (Step 0/2), the **`rebase-branch` invocation** (Step 2a) and every gate it raises, the Step 3 grilling session (the Skill tool runs in this conversation, so a subagent cannot invoke it) and any later stop-and-ask, **writing the three spec files** in Step 4 (they depend tightly on the settled decisions), the Step 7 commit and push, and the Step 8 report. Subagents cannot prompt the user, so every gate stays here.
-- **Delegate to a `general-purpose` subagent** (each returns a compact result):
-  - **Step 5** — launch the codex adversarial review of the three spec files with the exact commands in Step 5, wait for it under Step 5's deadline, fetch the result, and return the raw findings verbatim (also written to the scratch file), or `codex failed: <reason>`. The codex transcript stays in the subagent.
-  - **Step 6** — split the findings into disjoint batches (~3–5 each; if two findings contradict each other, put them in the same batch so one subagent resolves the conflict) and launch one adjudication subagent per batch **in a single message**, each getting the Step 3 settled decisions and the mission/tech-stack constraints and returning its slice of the accept/reject/defer disposition table. The main loop merges the slices, applies non-decision edits, and routes any finding that would change a settled decision back to the user here (see Step 6) — never in a subagent.
+Give each subagent a self-contained prompt with absolute paths inside the worktree, the exact commands, and the result shape you want back. Run independent work in parallel: the Step 1 reads are independent, and so are the Step 6 batches.
 
-Give each subagent a self-contained prompt: the exact command to run, the spec file paths, and the precise result shape to return.
+## Step 0 - Normalize the branch name and find any existing worktree
 
-**Parallelize by default.** When delegated tasks have no data dependency, dispatch them as multiple `Agent` calls in a **single message** so they run concurrently — never run independent subagents one at a time across turns. The Step 5 codex run → Step 6 adjudication is a serial chain (findings must exist before adjudication), but **within** Step 6 the adjudication batches fan out in parallel; and the Step 1 roadmap/mission/tech-stack reads are independent — fan them out in one message (whether read in the main loop or as parallel reader subagents).
+- **With an argument:** prepend `specs/` if it's missing (`feat-x` → `specs/feat-x`).
+- **Without one:** the name is derived in Step 2, after the roadmap is read. Run the checks below on it then.
 
-## Step 0 — Read and normalize the branch name input
+Validate with `git check-ref-format --branch "<branch-name>"`. If it fails, ask the user for a corrected name rather than sanitizing it yourself.
 
-The skill accepts a **git branch name** as its argument (e.g. `2026-05-05-firefly`, `specs/auth-revamp`).
+Then check `git worktree list --porcelain` for `branch refs/heads/<branch-name>`:
+- **A worktree has it checked out:** reuse that worktree. This is a *reused branch* (see Step 2a).
+- **The branch exists locally but no worktree has it:** `AskUserQuestion` whether to attach it to a new worktree (a reused branch), pick a different name, or delete it and recreate it fresh.
+- **Neither:** Step 2 creates the branch in a new worktree.
 
-- If an argument is provided, normalize it: if it does not already start with `specs/`, prepend `specs/` to form `<branch-name>` (so `feat-x` becomes `specs/feat-x`). Skip the slug-derivation step in Step 2.
-- If no argument is provided, fall back to deriving `<branch-name>` as `specs/<today>-<feature-name>` per Step 2. The name does not exist yet, so run the validation and worktree discovery below in Step 2, right after the derivation.
-- Validate the normalized name with `git check-ref-format --branch "<branch-name>"`. If invalid, stop and ask the user for a corrected name — do not silently sanitize.
-- **Worktree discovery** — run `git worktree list --porcelain` and look for a `branch refs/heads/<branch-name>` entry:
-  - A worktree already has the branch checked out → reuse it: record its root as the working directory for every subsequent step and skip creation in Step 2.
-  - No worktree has it, but the branch exists locally (`git show-ref --verify --quiet refs/heads/<branch-name>`) → use `AskUserQuestion` to ask whether to attach it to a new worktree, pick a different name, or delete it and recreate fresh.
-  - Neither exists → Step 2 creates the branch inside a new worktree.
-
-## Step 1 — Read the roadmap and supporting docs
+## Step 1 - Read the roadmap and constitution
 
 In parallel, read whichever of these exist:
-- `specs/roadmap.md` — identify the next unstarted phase (the feature to spec).
-- `specs/mission.md` — product north star; informs scope decisions.
-- `specs/tech-stack.md` — informs tech choices in `plan.md`.
-- `CLAUDE.md` / `AGENTS.md` and any architecture or convention docs they cite - the repo's engineering standards (layering rules, TDD mandate, test idioms, quality gates) that `plan.md`'s task groups and `validation.md`'s checklist must respect.
+- `specs/roadmap.md`: pick the phase to spec. If the user named a phase, or the branch name clearly matches one, use that phase. Otherwise take the first phase whose `Status` is `not started`. In a roadmap without status fields, take the first phase with no `specs/<name>/` directory yet.
+- `specs/mission.md`: the product north star, which bounds scope.
+- `specs/tech-stack.md`: the tech choices and quality gates `plan.md` must use.
+- `CLAUDE.md` / `AGENTS.md` and the architecture or convention docs they cite: layering rules, TDD mandate, test idioms, and gates that `plan.md` and `validation.md` must respect.
 
-If `specs/roadmap.md` is missing, stop and ask the user what feature to spec out — don't fabricate a phase.
+If `specs/roadmap.md` is missing, stop and ask the user what to spec. Suggest running `/constitution` first rather than inventing a phase. If `mission.md` or `tech-stack.md` is missing, note it, mention `/constitution`, and carry on with what you have.
 
-If `specs/mission.md` or `specs/tech-stack.md` is missing, note it and proceed with what you have.
+## Step 2 - Resolve the base and create the worktree
 
-## Step 2 — Resolve the branch name and create the branch in its worktree
+If no name was given, derive `<branch-name>` as `specs/<today>-<feature-name>`, where `<feature-name>` is the phase name in kebab case (four words at most) and `<today>` is the local date in `YYYY-MM-DD`. Run Step 0's validation and worktree check on it.
 
-If the user supplied a branch name in Step 0, use the normalized `specs/`-prefixed form as `<branch-name>` and skip the slug derivation below.
+**Require `origin`.** Step 7 pushes there. If `git remote get-url origin` fails, report that and end the run now rather than after the specs are written.
 
-Otherwise, derive `<branch-name>` as `specs/<today>-<feature-name>`:
-- `<feature-name>`: kebab-case, ≤4 words, derived from the phase name on the roadmap.
-- `<today>`: the local date in `YYYY-MM-DD`.
+**Resolve `<base>`**, the default branch as a ref, taking the first of these that works:
+1. `git symbolic-ref --short refs/remotes/origin/HEAD` (e.g. `origin/main`).
+2. `git ls-remote --symref origin HEAD`, looking for a `ref: refs/heads/<default>	HEAD` line, which gives `origin/<default>`. A success with no such line counts as no answer.
+3. A local `main` or `master`. If it tracks a remote branch (`git rev-parse --abbrev-ref <branch>@{upstream}`), use that remote-tracking ref instead.
+4. Nothing resolved: ask the user which branch to base on.
 
-Then run Step 0's `check-ref-format` validation and worktree discovery on the derived name before going on.
+Use `<base>` verbatim from then on; it is already remote-qualified.
 
-Resolve the default branch. The result is `<base>`; the branch name it is built from is
-`<default-branch-name>` — a **different** identifier from the `<name>` defined above (which is the
-spec-directory suffix). Never let the two share a placeholder. Try these in order and take the first
-that yields a ref — do not settle for a local `main`/`master` while a reachable remote could name a
-better one:
-
-1. **Local record of the remote's default.**
-   ```bash
-   git symbolic-ref --short refs/remotes/origin/HEAD    # -> "origin/main"
-   ```
-2. **Ask the remote itself**, whenever step 1 resolves nothing — this works even though `origin/HEAD`
-   is unset locally, and it does not depend on any local branch existing:
-   ```bash
-   git ls-remote --symref origin HEAD                   # look for: ref: refs/heads/<default-branch-name>  HEAD
-   ```
-   Parse the `ref: refs/heads/<default-branch-name>	HEAD` record specifically. If the command
-   **succeeds but emits no such record** (a detached remote HEAD, or a server that withholds the
-   symref), that is not a name — fall through to step 3. With a name in hand, use
-   `origin/<default-branch-name>` as `<base>`, and run `git remote set-head origin --auto` **only
-   after** the fetch below has succeeded: that command writes `origin/HEAD` as a symref to the
-   remote-tracking ref, so it fails when that ref does not exist yet — exactly the narrowed-clone
-   case this ordering exists to survive.
-3. **Local fallback**, only once both of the above came up empty:
-   ```bash
-   git show-ref --verify --quiet refs/heads/main && echo main
-   git show-ref --verify --quiet refs/heads/master && echo master
-   ```
-   If such a branch tracks a remote (`git rev-parse --abbrev-ref <branch>@{upstream}` → e.g.
-   `upstream/main`), prefer that remote-tracking ref as `<base>`, and carry its **remote** and
-   **branch** parts forward — the refresh below must act on *that* remote and *that* branch, not on
-   `origin`/`main` by reflex.
-4. **Nothing resolved at all** — no `origin/HEAD`, no usable `ls-remote` answer, no local
-   `main`/`master` — stop and ask the user which branch to base the spec branch on. Do not guess.
-
-`<base>` is a remote-tracking ref (`origin/main`, `upstream/main`) whenever steps 1-3 produced one,
-else the bare local `main`/`master` — both are valid start points for `git worktree add`. (Don't
-strip the remote prefix: a bare `main` fails in clones with no local default branch.) Use the
-resolved string **verbatim** everywhere `<base>` appears — it is already remote-qualified; never
-prepend `origin/` to it again.
-
-**Refresh `<base>` before using it.** When `<base>` is a remote-tracking ref, split it into
-`<base-remote>/<default-branch-name>` and fetch *that* pair with an **explicit refspec**, so the
-branch is created from — and Step 2a compares against — the remote's current tip rather than a stale
-local copy:
+**Refresh it** when it is a remote-tracking ref `<remote>/<default>`. Fetch with an explicit refspec, because a narrowed or single-branch clone can otherwise update only `FETCH_HEAD`:
 
 ```bash
-git fetch <base-remote> '+refs/heads/<default-branch-name>:refs/remotes/<base-remote>/<default-branch-name>'
-git rev-parse --verify refs/remotes/<base-remote>/<default-branch-name>   # must succeed before <base> is used
+git fetch <remote> '+refs/heads/<default>:refs/remotes/<remote>/<default>'
+git rev-parse --verify refs/remotes/<remote>/<default>
 ```
 
-Both commands must name the remote and branch that `<base>` actually resolved to. Fetching
-`origin/main` while `<base>` is `upstream/main` is the failure mode here: both commands succeed and
-`<base>` stays stale.
+Both commands must name the remote and branch that `<base>` actually resolved to. If either fails, stop; don't fall back to a possibly stale local tip.
 
-The explicit refspec matters too: a single-branch clone or a narrowed `remote.<name>.fetch` can make
-a plain `git fetch <base-remote> <default-branch-name>` land in `FETCH_HEAD` only, leaving the
-remote-tracking ref absent or stale while the fetch still reports success. A failed fetch or a
-`rev-parse` that does not resolve is a stop, not a reason to fall back to a local tip.
+**Create or attach the worktree** at `<wt-path>` = `<repo-parent>/<repo-dirname>-worktrees/<slug>`, where `<slug>` is `<branch-name>` with `/` replaced by `-`. Never nest a worktree inside the repo itself.
+- **New branch:** `git worktree add <wt-path> -b <branch-name> <base>`.
+- **Existing worktree:** use it as it is.
+- **Attach chosen:** `git worktree add <wt-path> <branch-name>`.
+- **Recreate chosen** (the user already confirmed the delete in Step 0): `git branch -D <branch-name>`, then the new-branch command.
 
-**No `origin` at all is a stop, not a downgrade.** Step 7 must push to `origin`, so a run that cannot
-reach it will fail there regardless — after the specs have been written, reviewed, and committed.
-Surface it here instead: if `git remote get-url origin` fails, report that and end the run rather
-than proceeding local-only.
+`cd` to the worktree root. Every later step runs there, and the user's original checkout is never touched.
 
-Define `<wt-path>` as `<repo-parent>/<repo-dirname>-worktrees/<slug>`, where `<slug>` is `<branch-name>` with `/` replaced by `-` (e.g. repo `~/sources/app` + branch `specs/2026-07-29-x` → `~/sources/app-worktrees/specs-2026-07-29-x`). Never nest a worktree inside the repo's own working tree.
+## Step 2a - Bring a reused branch up to date
 
-Then create or attach the worktree, **branching on what Step 0 found**:
-- Branch is new (the common case) → `git worktree add <wt-path> -b <branch-name> <base>` — creates the branch and its worktree in one step. The current checkout (and any uncommitted work in it) is left untouched, so no stash/dirty-tree gate is needed.
-- Step 0 found a worktree that already has the branch → nothing to create; use that worktree's root (from Step 0) and skip ahead to Step 2a. (This is the path where Step 2a earns its keep: a reused worktree is the case most likely to be behind `<base>`. If the reused worktree's tree is dirty, `rebase-branch`'s own preflight raises the stash-or-abort gate — let it.)
-- The branch exists unattached and the user chose **attach it** → `git worktree add <wt-path> <branch-name>`.
-- The user chose **delete it** (the destructive option in the Step 0 `AskUserQuestion`, so no second confirmation) → `git branch -D <branch-name>` followed by
-  `git worktree add <wt-path> -b <branch-name> <base>`.
+A new branch was just cut from the freshly fetched `<base>`, so it is already current; skip this step for it. For a reused branch, the specs must describe code on top of the current default branch rather than a stale one:
 
-Finally `cd` to the worktree root — every subsequent step (the spec-file writes, the codex review, the gates) runs from there, `specs/<name>/` is written under it, and subagent prompts carry absolute paths inside the worktree.
+1. **Already current?** If `git merge-base --is-ancestor <base> HEAD` succeeds, skip to Step 3.
+2. **Clean tree required.** If `git status --porcelain` shows anything, stop and report it. Don't stash: a stash taken here is easy to strand if the rebase is aborted. The user can commit or discard the changes and rerun.
+3. **Check what is published** at `origin/<branch-name>`:
+   ```bash
+   git ls-remote --exit-code origin refs/heads/<branch-name>   # 0 = published, 2 = not published
+   ```
+   - **Exit 2:** not published, so it's safe to rebase.
+   - **Any other non-zero exit:** a failure (auth, network), not an absence. Stop and report it.
+   - **Exit 0:** fetch it with `git fetch origin '+refs/heads/<branch-name>:refs/remotes/origin/<branch-name>'`, then:
+     - If `git merge-base --is-ancestor origin/<branch-name> HEAD` fails, the remote has commits this worktree lacks. Stop and tell the user to integrate them first.
+     - If `git rev-list <base>..origin/<branch-name>` is non-empty, a rebase would rewrite published commits, and Step 7 never force-pushes. `AskUserQuestion`: **skip the rebase and spec against the branch as is** (note the staleness in the report), **pick a different branch name** (loop back to Step 0), or **stop**.
+     - Otherwise every published commit is already in `<base>`, so it's safe to rebase.
+4. **Rebase.** Invoke the `rebase-branch` skill with `<base>` as its argument. It owns conflict resolution and its own questions; let them run. If it aborts, or the user aborts one of its questions, stop this skill too rather than writing specs onto a half-integrated tree. It also runs its own codex review and project gates over the branch. Let those finish, but they don't replace Step 5, which reviews the spec files against the constitution.
+5. **Re-read everything from Step 1** in the rebased tree, and check the chosen phase again. The default branch may have changed the roadmap or delivered the phase already; if so, pick the next unstarted phase, or ask.
 
-## Step 2a — Rebase the branch onto the default branch (`rebase-branch` skill)
+## Step 3 - Grill the user (`grilling` skill)
 
-Before any spec content is gathered or written, bring the branch up to date with `<base>` (resolved and fetched in Step 2) by invoking the **`rebase-branch`** skill from the worktree root:
+Before writing anything, invoke `mattpocock-skills:grilling` with the Skill tool and run its session to completion. It is the skill `/grill-me` loads; call it by this name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
 
-```
-/rebase-branch <base>
-```
+Seed the design tree from the phase's roadmap entry and the Step 1 docs, so every question and recommended answer is specific to this phase. Cover at least:
+- **Scope:** what is in and out for this phase. The roadmap entry is the starting point, not the final word.
+- **Key decisions:** every consequential open choice (library, data model, sync vs. async, auth, ...), each with its trade-off. A choice the spec makes without the user gets frozen silently.
+- **Validation:** how we will know the phase is done (unit and integration tests, manual QA, metrics, ...).
+- **Repo-mandated content:** anything `CLAUDE.md` / `AGENTS.md` requires a spec to state. Each one is a decision for the user, even when the answer looks obvious.
 
-Rationale: `requirements.md`, `plan.md`, and `validation.md` describe code that must exist on top of the default branch. A `specs/<name>` branch reused from an earlier session (the Step 0 "worktree already has the branch" and "attach the existing branch" paths) can be many commits behind, so the plan's task groups and the validation checklist would be written against stale APIs, stale conventions, and a stale roadmap.
+Ask only questions whose answer changes the spec. What the repo's docs already settle is a fact, and finding facts is your job.
 
-### Gates to clear *before* invoking it
+**Done when** the frontier is empty and the user confirms you share an understanding. List the settled decisions as `D1`, `D2`, ... in the conversation; Step 4 writes from them and Step 6 checks findings against them. Write nothing under `specs/<name>/` until then.
 
-The first is an unconditional hard stop; the second is a decision the user must make before the rebase runs. Neither may be worked around silently.
+## Step 4 - Write the spec files and mark the phase
 
-- **Staged changes in the worktree — hard stop.** If `git diff --cached --name-only` is non-empty, report and end the run. `rebase-branch`'s dirty-tree gate stashes with `git stash push -u` and restores with `git stash pop --index`, falling back to a plain `git stash pop` on index conflicts, which silently demotes staged changes to unstaged — that both loses the user's staging and hides pre-staged work from the Step 7 preflight, which would then pass on a tree it was meant to reject. Leave the index exactly as found and let the user deal with it.
-- **A reused branch whose rewritten history is already published — decision gate.** Test the branch's *publication destination*, which is `origin/<branch-name>` (where Step 7 pushes), not `@{upstream}` — a branch can already exist at that destination with no upstream configured, or track somewhere else entirely:
-
-  ```bash
-  git ls-remote --exit-code origin refs/heads/<branch-name>    # 0 = published, 2 = not published
-  git fetch origin '+refs/heads/<branch-name>:refs/remotes/origin/<branch-name>'
-  git rev-parse --verify refs/remotes/origin/<branch-name>
-  git rev-list <base>..origin/<branch-name>                    # published commits above <base>
-  ```
-
-  Read the exit codes exactly, and do not let a failure masquerade as an answer:
-  - `ls-remote` **exit 2** — the branch is genuinely not published. Nothing to rewrite; no question. Skip the rest of the probe.
-  - `ls-remote` **any other non-zero** (auth, network, no such remote) — a *failure*, not an absence. Stop and report; never infer "unpublished" from an error. Likewise, only interpret `rev-list`'s output after `fetch` and `rev-parse` have both succeeded — empty stdout from a command that errored means nothing. (The explicit refspec is again deliberate: a narrowed fetch mapping otherwise leaves `origin/<branch-name>` stale or missing.)
-  - `ls-remote` **exit 0**, and `rev-list` **empty** — every published commit is already contained in `<base>`, so the replay rewrites nothing that is published. No question.
-  - `ls-remote` **exit 0**, and `rev-list` **non-empty** — published commits sit above `<base>`. Unless `<base>` is already an ancestor of `HEAD` (in which case `rebase-branch` exits early and replays nothing — check `git merge-base --is-ancestor <base> HEAD` first and skip the question if it holds), the rebase replays them onto a new base and gives them new SHAs.
-
-  In that last case the Step 7 `git push -u origin <branch-name>` is non-fast-forward, and Step 7 forbids force-pushing. Discovering that *after* writing and committing specs is the failure this gate exists to prevent, so resolve it here with `AskUserQuestion`: **rebase and force-push with `--force-with-lease` in Step 7** (record the approval and the inspected remote tip, `git rev-parse refs/remotes/origin/<branch-name>`, as `<published-oid>` — together they are the only thing that unlocks the Step 7 carve-out; also confirm `git merge-base --is-ancestor <published-oid> HEAD` holds, so no remote-only commit is overwritten), **skip the rebase and spec against the branch as-is** (note the staleness in the Step 8 report), or **pick a different branch name** (loop back through Step 0).
-
-### Running it
-
-- Run it **after** the worktree exists and **before** Step 3 — never on the user's original checkout, always with the worktree root as the working directory.
-- **Two early exits count as "already current"**, and neither is a failure: `rebase-branch` stops at its preflight Step 0.2 when the branch tip *equals* `<base>`'s tip (the usual outcome for a branch Step 2 just created off the freshly fetched `<base>`), and at its preflight Step 0.5 with "nothing to integrate" when `<base>` is already an ancestor of `HEAD`. Record which one occurred and continue to Step 3. **Every other preflight stop is a real stop** — do not read "it exited early" as "it was a no-op", and never infer the no-op from the fact that the branch is new.
-- **Honour its stop-and-ask gates.** `rebase-branch` owns conflict resolution and its own `AskUserQuestion` prompts; do not pre-empt or auto-answer them. If it aborts the rebase or the user aborts a question, stop this skill too — report the abort and do not write spec files onto a half-integrated tree.
-- **Check for an orphaned stash on the way out.** If `rebase-branch` exits at its preflight *after* its Step 0.3 dirty-tree gate created a stash, the stash is never popped — its restore lives in Step 2, which an early exit never reaches. Identify the stash by **object id**, not by name or position: `git stash list` descriptions repeat across sessions and its `stash@{N}` selectors renumber the moment an entry is pushed.
-
-  ```bash
-  git rev-parse --verify --quiet refs/stash    # before invoking; may be empty (no stash ref yet)
-  ```
-
-  After the skill returns, re-read `refs/stash`. If it is **unchanged**, this invocation created nothing — restore nothing.
-
-  If it **changed**, the new entry is `stash@{0}`; confirm `git rev-parse stash@{0}` equals that new id. Before popping it, establish whether a restore was already *attempted*: a `git stash pop` that hit conflicts applies its changes to the working tree and **leaves the entry in place**, so a surviving stash is not proof that nothing was restored — and popping it again would apply the same changes twice.
-
-  The most reliable signal is the invocation itself: if `rebase-branch` reported a stash pop or a pop conflict, a restore was attempted, whatever the tree looks like now. Corroborate against the tree, and note that the reference stashes with `stash push -u`, so untracked files are part of the entry:
-  - `git status --porcelain` — treat **any** unmerged state as a conflicted restore, not just `UU`/`AA`: `DD`, `AU`, `UD`, `UA`, `DU` all mean the same thing here.
-  - `git stash show --include-untracked -p stash@{0}` — the entry's full content, untracked files included. Plain `git stash show -p` omits them and will make a partial restore look complete.
-
-  Then:
-  - **Untouched tree, no restore reported** — nothing applied. `git stash pop stash@{0}`, **naming the selector explicitly** (a bare `git stash pop` always takes the latest entry, which is only coincidentally the right one).
-  - **Conflicted or already applied** — do not pop again. Finish resolving the conflicts as that skill's Step 2 would, leaving the restored work in the tree as **uncommitted changes** — do not commit it (that would publish work the user never asked this skill to commit) and do not leave it staged (Step 7's preflight hard-stops on a non-empty index). Restore the index to the empty state this step found it in, then `git stash drop stash@{0}`.
-  - **Uncertain whether the entry is fully represented in the tree** — keep the stash. An orphaned stash the report names is recoverable; a dropped one is not.
-
-  Say which case occurred in the Step 8 report.
-
-  Run this check on **every** exit path, not just the early-preflight one: `rebase-branch` reaches its stash restore only in its Step 2, so an abort after the stash was taken strands it too. The staged-changes gate above makes all of this unlikely, not impossible.
-- **`rebase-branch` runs its own codex review and its own format/lint/build/test gates, over the whole repository.** They are neither trivial nor a substitute for anything here: its review covers what the branch adds above `<base>` (on a reused branch, that includes previously-committed spec files and any reconciliation edits it just made), and its gates run the project's real test suite. Let its full workflow run and honour its verdicts. Step 5 below is still separate and still mandatory: it reviews the *three files this skill writes* against the roadmap/mission/tech-stack, which the rebase review does not do.
-
-### After it returns
-
-- **Re-read every Step 1 document from the worktree, unconditionally** — `specs/roadmap.md`, `specs/mission.md`, `specs/tech-stack.md`, `CLAUDE.md` / `AGENTS.md` and the architecture or convention docs they cite. A perfectly clean rebase with zero reconciliation edits still pulls in an updated roadmap, a changed mission, or new layering rules, and Step 3's questions must be built from the post-rebase tree. In particular, **re-validate the phase chosen in Step 1**: the default branch may have delivered it already, in which case pick the next unstarted phase (or stop and ask, per Step 1's rule).
-- Record the outcome (which early exit, or rebased onto `<base>` at `<input-sha>` with N commits replayed plus any reconciliation and doc-staleness edits it made) for the Step 8 report.
-
-## Step 3 — Grill the user on the spec (`grilling` skill)
-
-Before writing any files, invoke the **`grilling`** skill with the Skill tool and run its session to completion. `grilling` is the skill `/grill-me` loads; call it by that name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
-
-Seed the design tree from what Step 1 found, so every question and recommended answer is specific to this phase — generic questions are useless. The tree must cover at least these branches:
-
-- **Scope** - what is in vs. out for this phase (e.g. MVP import + list vs. full import + list + edit + delete).
-- **Key decisions** - every consequential open choice (library, data model, sync vs. async, auth strategy, ...), each with its trade-off. Not only the biggest one: a choice the spec makes without the user is a choice frozen silently.
-- **Validation** - how we know the phase is done (unit + integration tests, manual QA checklist, staging soak + metrics, ...).
-- **Repo-mandated spec content** - anything `CLAUDE.md` / `AGENTS.md` requires the spec to state (e.g. the source-of-truth messages a type projects, a failure-direction table, sender/authorization semantics). Each is a decision for the user, even when the answer looks obvious.
-
-Ask only questions whose answer changes the spec; anything the repo's documented rules already settle is a fact, not a question. Facts are your legwork, never the user's.
-
-**Done when** the frontier is empty (every branch of the design tree visited) and the user has confirmed shared understanding. Then list the **settled decisions** as a numbered list (`D1`, `D2`, ...) in the conversation: Step 4 writes from it, and Step 6 checks every finding against it.
-
-Write nothing under `specs/<name>/` until the session is done - the settled decisions seed the three files. (This prohibition is about *this skill's* authoring; it does not retroactively forbid the gated reconciliation and doc-staleness edits `rebase-branch` may have committed in Step 2a.)
-
-## Step 4 — Write the three files
-
-Create `specs/<name>/` (where `<name>` is `<branch-name>` without the leading `specs/`) with:
+If `specs/<name>/` already exists, `AskUserQuestion` whether to overwrite, append, or pick a different name. A new name loops back to Step 0, so the branch and the directory keep matching.
 
 ### `requirements.md`
-- **Context** — 2-4 sentences linking this phase to the roadmap, mission, and tech-stack constraints.
-- **Scope** — `In:` / `Out:` bullet lists, populated from the settled scope decisions.
-- **Decisions** — bullets capturing every settled decision from Step 3 (scope and validation aside) plus any constraints inherited from mission/tech-stack.
+- **Context:** a short paragraph tying this phase to the roadmap, mission, and tech stack.
+- **Scope:** `In:` / `Out:` lists, from the settled scope decisions.
+- **Decisions:** every other settled decision, plus constraints inherited from the mission and tech stack.
 
 ### `plan.md`
-A series of **numbered task groups**. Each group:
-- Short header (e.g., `## 1. Schema migration`).
-- A few sub-bullets describing actual code/migrations/tests.
+Open with a short **Engineering standards** section, stated once. Where these overlap with the repo's own documented conventions, the repo's version wins:
+- **TDD:** behavior changes are test-first. Each group lists the failing tests to write before the code that makes them pass.
+- **Clean architecture:** keep the repo's dependency boundaries. Where it defines layered or hexagonal rules, dependencies point inward (consumer-defined interfaces, domain logic free of transport/DB/framework concerns).
+- **Standard design patterns:** where a group needs a non-obvious abstraction, name the well-known pattern (Strategy, Repository, Ports & Adapters, Functional Options, ...) and why. Plain code wins when it is enough, and pattern names stay in the plan, not in code identifiers.
+- **Clean, idiomatic code:** small, single-purpose units with names that say what they do, and no duplication introduced by the change. Style precedence: documented repo rules, then the surrounding code's idiom, then the language's community conventions.
 
-Order so each group can land as its own commit/PR. Group 1 should be the smallest viable slice that's mergeable on its own.
-
-Open the plan with a short **Engineering standards** section stating the invariants every group follows once - the repo's own documented conventions (from the Step 1 reads) win wherever they overlap:
-- **TDD** - behavior changes are implemented test-first: each group lists the failing test(s) to write before the code that makes them pass; the test list is part of the group, not an afterthought.
-- **Clean architecture** - preserve the repo's established dependency boundaries; where the repo defines layered/hexagonal rules, keep dependencies pointing inward (consumer-defined interfaces, domain logic free of transport/DB/framework concerns).
-- **Standard design patterns** - where a group needs a non-obvious abstraction, the plan names the well-known pattern (Strategy, Repository, Ports & Adapters, Functional Options, …) and why; plain code wins when it suffices, and the pattern name lives in the plan - never forced into code identifiers or comments.
-- **Clean, idiomatic code** - small, single-purpose units with intention-revealing names; no duplication introduced by the change (deliberate test duplication for clarity is fine); style precedence: documented repo rules, then the surrounding code's idiom, then the language community's conventions.
-
-Each task group then states only what is concrete to it - its tests, the package/layer it lands in, and any pattern decision that applies - never a restatement of the standards boilerplate.
+Then write **numbered task groups** (`## 1. Schema migration`), each with a few bullets on the concrete code, migrations, and tests: its tests, the package or layer it lands in, and any pattern decision. Don't restate the standards in each group. Order the groups so each could land as its own commit; group 1 is the smallest slice that is mergeable on its own.
 
 ### `validation.md`
-- **Success criteria** — populated from the settled validation decisions.
-- **Checklist** - concrete checkboxes: tests to add, the repo's own quality gates (format, lint, build, full test suite, and any architecture/static-analysis checks it defines), manual checks, metrics/dashboards to confirm.
-- **Done when** — one line naming the binary signal (test passes, metric crosses threshold, etc.).
+- **Success criteria:** from the settled validation decisions.
+- **Checklist:** concrete checkboxes for the tests to add, the repo's quality gates (format, lint, build, full test suite, any architecture or static-analysis checks), manual checks, and metrics to confirm.
+- **Done when:** one line naming the binary signal.
 
-## Step 5 — Codex review of the spec files (codex adversarial review)
+### Roadmap status
+If the chosen phase in `specs/roadmap.md` has a `Status:` line, set it to `in progress`. That is the only change to `roadmap.md`. If the roadmap has no status fields, or `roadmap.md` already had uncommitted changes you didn't make, leave it alone and say so in the report.
 
-Get an independent second-model review of the three files just written through the codex plugin's **adversarial review**. This skill uses adversarial review rather than plain review because the review needs **custom focus text** — it must judge the three spec docs against the roadmap/mission/tech-stack, which plain review cannot carry. The `/codex:*` slash commands set `disable-model-invocation`, so neither the main loop nor a subagent can run them through the Skill tool; the Step 5 subagent runs the companion script those commands wrap. `--scope working-tree` pins the review to the uncommitted change, which is the three spec files (newly created or, in the overwrite/append case, modified); the focus text names them. Run from the worktree root (the Step 2 `cd` already put you there):
+## Step 5 - Codex review (adversarial review, in a subagent)
+
+Use the codex plugin's **adversarial review**, because it accepts focus text and plain `review` doesn't. The `/codex:*` slash commands set `disable-model-invocation`, so the subagent runs the companion script they wrap, from the worktree root:
 
 ```bash
-ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | sort -V | tail -1   # -> <companion>
-# Bash tool with run_in_background: true; timeout bounds the process (see ~/.claude/AGENTS.MD)
-timeout -k 10 660 node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"
+ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # -> <companion>
+# Bash tool with run_in_background: true
+CODEX_COMPANION_SESSION_ID=feature-spec-<slug>-<random> timeout -k 10 660 node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"
+CODEX_COMPANION_SESSION_ID=feature-spec-<slug>-<random> node "<companion>" status --json   # lists only this launch's job
+node "<companion>" status <job-id> --wait --timeout-ms 240000 --json                       # repeat until finished
+node "<companion>" result <job-id>
 ```
 
-Shell variables do not persist between Bash calls, so substitute the resolved `<companion>` path literally in every command. Pass the flags as separate arguments and `<focus>` as its own argument after `--`, as above. The companion re-splits a single combined string with its own parser, which rewrites quotes and can turn focus text into options.
+Shell variables don't persist between Bash calls, so substitute `<companion>` and the tag literally. Pass each flag as its own argument and `<focus>` as one argument after `--`, because the companion re-splits a combined string and can mangle it. Use the tag to find the job, not "the newest job", since other reviews may share the workspace. If the tagged status shows zero jobs or more than one, the launch failed.
 
-With `<focus>`:
+`<focus>`:
 
-> Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md / any convention or architecture docs it cites, if they exist — the specs must be consistent with them. Review for: internal contradictions between the three files, scope items in plan.md missing from requirements.md (and vice versa), validation criteria that don't actually verify the stated requirements, ambiguous or untestable acceptance criteria, missing edge cases or risks, and conflicts with the roadmap/mission/tech-stack. Also check plan.md's task groups against the repo's engineering standards: TDD sequencing (tests listed before the code they pin), respect for the repo's dependency/layering boundaries, overengineered or needless abstractions, and steps that would produce non-idiomatic or untestable code. For each finding output a numbered item with: file, the issue, and the suggested change. Output findings only — do not rewrite the documents.
+> Review these planning documents: specs/<name>/requirements.md, specs/<name>/plan.md, specs/<name>/validation.md. Also read specs/roadmap.md, specs/mission.md, specs/tech-stack.md, and CLAUDE.md / AGENTS.md plus any convention or architecture docs they cite, if they exist; the specs must be consistent with them. Review for: internal contradictions between the three files; scope items in plan.md missing from requirements.md and vice versa; validation criteria that don't verify the stated requirements; ambiguous or untestable acceptance criteria; missing edge cases or risks; scope that strays outside this phase's roadmap entry or works against the mission's non-goals; and conflicts with the tech stack. Also check plan.md's task groups against the engineering standards: tests listed before the code they pin, the repo's dependency and layering boundaries, needless abstractions, and steps that would produce non-idiomatic or untestable code. For each finding, output a numbered item with the file, the issue, and the suggested change. Output findings only; do not rewrite the documents.
 
-- **Do not block the launching turn.** Find the job id with `node "<companion>" status` (the newest adversarial-review job), then poll `node "<companion>" status <job-id> --wait --timeout-ms 240000 --json` (a 4-minute bounded wait that also shows `pid` and `logFile`) until the job finishes, then read `node "<companion>" result <job-id>`. Capture that output verbatim to a scratch file (`/tmp/codex-spec-review-<slug>.md`, `<slug>` as defined in Step 2) so Step 6 is auditable. Do **not** commit this file.
-- **Deadline.** The companion has no internal timeout. Allow 10 minutes from launch. Treat the job as stalled when its `pid` is dead while status still says running, or when its log file has been silent for 5 minutes. On a stall or the deadline, run `node "<companion>" cancel <job-id>` and return `codex failed: <reason>`.
-- **Companion missing** (no path resolves): fall back to a one-shot run in the subagent, `timeout -k 10 600 codex exec --sandbox read-only -o /tmp/codex-spec-review-<slug>.md "<focus>"`. A non-zero exit (124, or 137 after the kill, is the timeout) or an empty output file is `codex failed: <reason>`.
-- If `codex` itself is missing, the launch fails, the job errored, or the subagent returned `codex failed`, do not silently skip: tell the user the codex review failed and use AskUserQuestion to offer these options, named exactly so the choice is unambiguous: **retry the codex review**, **substitute a self-review pass** (then continue to Step 6 and Step 7), **skip the review and commit/push the unreviewed specs**, or **skip the review and stop without committing or pushing**. Enter Step 7 only when the chosen option explicitly permits it; the Step 8 report names the option taken.
+Rules for the subagent:
+- **Capture** the result verbatim to `/tmp/codex-spec-review-<slug>.md`, so Step 6 can be audited, and return the findings. This file is never committed.
+- **Deadline:** 10 minutes from launch. The job has stalled if its `pid` is dead while status still says running, or if its `logFile` has been silent for 5 minutes. Then `cancel <job-id>` and return `codex failed: <reason>`.
+- **No companion:** run `timeout -k 10 600 codex exec --sandbox read-only -o /tmp/codex-spec-review-<slug>.md "<focus>" < /dev/null` instead. Without the `< /dev/null`, a background `codex exec` waits on stdin until the timeout kills it. A non-zero exit or an empty file means `codex failed`.
 
-## Step 6 — Validate the findings and update the specs
+If codex fails, tell the user and `AskUserQuestion` with these options: **retry the codex review**, **substitute a self-review** (adversarial `general-purpose` subagents given the same focus text, whose findings go through Step 6), **skip the review and commit and push unreviewed specs**, or **skip the review and stop without committing**. Go on to Step 7 only if the chosen option allows it.
 
-Do **not** apply codex's comments blindly — they are hypotheses to adjudicate, not instructions. For each numbered finding:
+## Step 6 - Adjudicate the findings and update the specs
 
-1. Re-read the cited spec passage and confirm the issue is real.
-2. Check it against the Step 3 settled decisions — a finding that only disputes a decision the user explicitly made is **rejected**, however plausible. A finding showing a settled decision rests on a wrong fact or is unsafe goes back to the user before it gets a disposition (as below).
-3. Check it against `specs/mission.md` / `specs/tech-stack.md` constraints.
-4. Mark a disposition:
-   - **accept** — real gap or contradiction; update the affected file(s).
-   - **reject** — factually wrong, restates a deliberate scope cut, or contradicts a user decision; note why.
-   - **defer** — valid but belongs to a later phase or needs a user decision; note where it should go.
+Codex's comments are hypotheses, not instructions. For each finding:
+1. Re-read the cited passage and confirm the issue is real.
+2. Check it against the settled decisions. A finding that only disputes a decision the user made is **rejected**. A finding showing that a decision rests on a wrong fact, or is unsafe, goes back to the user (below).
+3. Check it against the mission and tech-stack constraints.
+4. Give it a disposition:
+   - **accept:** a real gap or contradiction; edit the file(s), and keep each edit traceable to its finding number.
+   - **reject:** wrong, a deliberate scope cut, or contradicts a user decision; say why.
+   - **defer:** valid but belongs to a later phase or needs a user decision; say where it goes.
 
-Apply the accepted findings to the spec files, keeping each edit traceable to its finding number. If an accepted finding would change a settled decision (e.g. widen scope, swap a key decision), do not edit — reopen that branch of the design tree and run grilling on it until its frontier is empty again and the user confirms, then update the settled decisions before editing. Present the full disposition table to the user.
+If an accepted finding would change a settled decision (widen scope, swap a key choice), don't edit it on your own. Reopen that branch with the grilling skill until the user confirms, update the decision list, and then edit. Show the user the full disposition table.
 
-## Step 7 — Commit and push
+## Step 7 - Commit and push
 
-With the disposition table applied, commit the spec files and push the branch. This runs without a confirmation prompt — the worktree guarantees `HEAD` is the `specs/<name>` branch, never the default branch. Every command below runs from the worktree root. The failure conditions in this step are **hard stops**: report the error and end the run; do not offer a proceed option, never switch remotes, and never force-push — with the single pre-approved exception recorded at the Step 2a published-history gate, spelled out in sub-step 4 below. Read that exception before concluding a non-fast-forward rejection ends the run.
+This runs without a confirmation prompt, because the worktree guarantees `HEAD` is the `specs/<name>` branch. Every failure below is a hard stop: report the exact error and end the run. Never force-push and never switch remotes.
 
-1. **Preflight, before staging or committing.** Assert all of the following, and stop if any fails:
-   - `git rev-parse --abbrev-ref HEAD` equals `<branch-name>` exactly (which implies it starts with `specs/` and is not the default branch resolved in Step 2).
-   - `git remote get-url origin` succeeds — there is an `origin` to push to.
-   - `git diff --cached --name-only` is empty — nothing is pre-staged from a reused worktree.
-2. **Stage exactly the three files by explicit path**, never by directory:
+1. **Preflight:** `git rev-parse --abbrev-ref HEAD` equals `<branch-name>`, `git remote get-url origin` succeeds, and `git diff --cached --name-only` is empty.
+2. **Stage by explicit path, never by directory:**
    ```bash
    git add -- specs/<name>/requirements.md specs/<name>/plan.md specs/<name>/validation.md
+   git add -- specs/roadmap.md   # only if Step 4 changed its status line
    ```
-   Then confirm `git diff --cached --name-only` lists exactly those three paths and skim `git diff --cached`. Never stage the codex scratch file or anything else `git status --short` shows; leave unrelated changes untouched and mention them in the Step 8 report.
-3. **Commit** following the repo's own convention, in this precedence: a subject style established by `CLAUDE.md`/repo docs, then the style of recent `git log` subjects (e.g. a ticket-key prefix such as `APP-731: <summary>` — use the key when `<name>` or the roadmap carries one, never invent one), and only when no convention is detectable the default `docs(specs): add <name> feature spec`. Include any required trailers defined by the environment/repo. The body lists the three files and summarizes the codex review outcome in one line.
-4. **Push and set the upstream:**
-   ```bash
-   git push -u origin <branch-name>
-   ```
-   Any non-zero exit (missing/invalid remote, network, auth, protected branch, non-fast-forward) is a stop: report the exact error, leave the commit in place, do not retry with `--force` or another remote.
+   Confirm `git diff --cached --name-only` lists exactly those paths. Leave anything else `git status` shows untouched, and mention it in the report.
+3. **Commit** in the repo's convention: a subject style set in `CLAUDE.md` or the repo docs, else the style of recent `git log` subjects (e.g. a ticket-key prefix, used only when the name or roadmap carries a key; never invent one), else `docs(specs): add <name> feature spec`. Add any trailers the environment requires. The body lists the files and gives the codex outcome in one line.
+4. **Push:** `git push -u origin <branch-name>`. A non-zero exit is a stop; leave the commit in place. Don't open a PR unless the user asks.
 
-   **Single carve-out:** if, and only if, the user explicitly chose "rebase and force-push with `--force-with-lease`" at the Step 2a published-history gate, a non-fast-forward rejection here is the expected consequence of that approved rewrite — retry once as `git push -u --force-with-lease=refs/heads/<branch-name>:<published-oid> origin <branch-name>` (pinned to the inspected tip, so a collaborator's later push is never overwritten) — keeping `-u`, so the tracking relationship this step promises is still established — and name the approval in the Step 8 report. Never `--force`, never a second remote, and never this path without that recorded approval. Do not open a PR unless the user asks; pushing the branch is where this skill stops.
+## Step 8 - Report
 
-## Step 8 — Report
-
-Print the three file paths and a one-sentence summary of each, plus the Step 2a rebase outcome (no-op because the branch was already current, or rebased onto `<base>` at `<input-sha>` with N commits replayed and any reconciliation edits it made) and the codex review outcome: total findings and the accept/reject/defer breakdown with one-line reasons for rejections (or that the review was skipped, which Step 5 option was chosen, and why). Then state the commit hash and subject, the branch pushed, and the worktree path the specs live in — or, if Step 7 stopped, which preflight or push check failed and its exact error.
+- The three spec paths, each with a one-sentence summary, and whether the roadmap status was updated.
+- How the worktree was set up: new, or reused. For a reused one, the Step 2a outcome (already current, rebased onto `<base>` at `<sha>`, or rebase skipped and why).
+- The codex outcome: the total, the accept / reject / defer counts, a one-line reason for each rejection (or which Step 5 option was taken and why).
+- The commit hash and subject, the branch pushed, and the worktree path. If Step 7 stopped, which check failed and its exact error.
+- The next step, `/implement-plan specs/<name>/plan.md`, and a reminder that the worktree stays until the user removes it (`git worktree remove <wt-path>`, then `git worktree prune`).
 
 ## Notes
 
-- "Today" = local system date, not commit timestamps (only used in the fallback slug derivation).
-- The branch is always `specs/<name>` and the docs directory is always `specs/<name>/` — same `<name>`, derived once in Step 0/2; keep them in sync. If `<name>` itself contains further slashes (e.g. `specs/feat/auth`), the spec directory nests accordingly (`specs/feat/auth/`).
-- If the project already has a `specs/<name>/` directory, use `AskUserQuestion` to ask whether to overwrite, append, or pick a different name. Run this check **before Step 4 writes the files**; if the user picks a different name, loop back through the Step 0 name normalization and branch-existence check so the branch and `specs/<name>/` names stay in sync.
-- If the user runs this skill on a branch that isn't the default branch, warn them — they may have meant to run it after merging their current work.
-- The Step 7 commit contains only the three spec files. The codex scratch file lives outside the repo and is never committed.
-- The skill never removes worktrees. When a feature is merged and done, the user cleans up with `git worktree remove <wt-path>` (then `git worktree prune`); mention this in the Step 8 report when a worktree was created.
+- "Today" is the local system date.
+- If `<name>` contains slashes (`specs/feat/auth`), the docs directory nests to match (`specs/feat/auth/`).
+- If the user's own checkout is on a non-default branch, mention it; they may have meant to merge that work first.
+- This skill never removes worktrees.

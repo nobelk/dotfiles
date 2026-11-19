@@ -1,6 +1,6 @@
 ---
 name: source-status
-description: Syncs every intramotev git repo under ~/sources to its default branch without discarding local work, reviews the last three days of commits and PRs against it as a principal engineer, and writes an adversarially-verified summary of key changes and critical issues (under 450 words) to ~/sources/review/source_summary_MM_DD_YY.md.
+description: Syncs every intramotev git repo under ~/sources to its default branch without discarding local work, reviews the last three days of commits and PRs against it as a principal engineer, and writes an adversarially-verified summary of key changes and critical issues (a one-screen triage) to ~/sources/review/source_summary_MM_DD_YY.md.
 disable-model-invocation: true
 ---
 
@@ -90,7 +90,7 @@ Review brief for each subagent:
 - Read surrounding code from the pinned trees only: `git show "$TIP":<path>` for the default branch, `git show "$PR_TIP":<path>` for an open PR. Read the repo's `CLAUDE.md`/ADRs the same way when a judgment depends on them. For open PRs, check compatibility with current `$TIP`.
 - Judge as a principal engineer across five lenses: **engineering** (reliability, operability, security, performance, dependencies), **architecture** (boundaries, coupling, data flow, contracts between services), **design** (API and schema shape, migrations, backward compatibility), **coding** (correctness, error handling, concurrency, readability), **testing** (missing or weakened tests, coverage of the changed behavior, red CI via `gh pr checks <n> --repo <owner/repo>`).
 - Search when a judgment depends on facts outside the diff. GitHub: `gh search prs "<symbol or contract name>" --owner intramotev`, `gh search code "<symbol>" --owner intramotev` for consumers in sibling repos. Web: CVEs, library changelogs, deprecations.
-- Report only what clears the **critical bar**: a defect, risk, or regression that will plausibly cause an outage, data loss, security exposure, a broken contract with another repo, or untested production behavior. Rate each finding `critical` (likely harm on deploy) or `high` (real risk, needs a fix before it compounds). Style nits and minor suggestions stay out.
+- Report every finding you can evidence, including ones you are unsure of or judge minor, each rated `critical` (likely harm on deploy), `high` (real risk, needs a fix before it compounds) or `low`, with your confidence. Step 5 applies the **critical bar** - a defect, risk, or regression that will plausibly cause an outage, data loss, security exposure, a broken contract with another repo, or untested production behavior - so do not filter for it here.
 
 Each subagent returns exactly:
 
@@ -98,7 +98,7 @@ Each subagent returns exactly:
 REPO: <name>
 SUMMARY: <1–2 sentences: what changed and why it matters>
 KEY CHANGES: <≤3 bullets, each citing a sha or PR#>
-CRITICAL ISSUES: <every finding that clears the bar, no cap: [severity][lens] issue — evidence (sha/PR#, path:line, external URL if used) — impact>
+FINDINGS: <every finding, no cap: [severity][confidence][lens] issue — evidence (sha/PR#, path:line, external URL if used) — impact>
 ```
 
 Done when: every active repo has a returned block, and every finding cites a sha or PR number plus path:line.
@@ -122,7 +122,8 @@ _Coverage: <stale / review-only / incomplete repos, one phrase each; omit the li
 
 Rules:
 
-- Under **450 words total**, checked with `wc -w`. When over, cut change lines first, least important first. Then cut `high` findings, lowest impact first, and end the section with `+N more high findings (see chat)`. `critical` findings are never cut. If `critical` findings alone still exceed 450 words, drop the **Changes by repo** section, compress each critical line to issue + citation, and move impact detail to chat.
+- Only findings that clear the Step 4 critical bar enter the draft; the rest stay in the full finding list Step 6 receives.
+- Keep the file a one-screen triage: every `critical` finding in full, then `high` findings and change lines in order of impact for as long as each still earns its place. Anything left out goes to chat; when a `high` finding is left out, end the Critical issues section with `+N more high findings (see chat)`.
 - Order findings by severity, then impact, across repos. If there are none, write `None found.` under the heading.
 - Every claim cites a sha or PR number. Open PRs are labelled `open`.
 - Inactive repos never appear, not even as "no changes".
@@ -138,9 +139,9 @@ Run Step 6 even when no repo is active: the omission adversary then confirms the
 
 Apply results: fix every `WRONG` item, downgrade or drop every `OVERSTATED` item, add each evidenced omission. When an adversary and a Step 4 subagent disagree, read the cited diff yourself and decide; the evidence decides, not either side.
 
-Then dispatch the accuracy adversary once more on **only the changed or added lines** (including lines reworded to fit the word limit). Apply its corrections the same way.
+Then dispatch the accuracy adversary once more on **only the changed or added lines** (including reworded lines). Apply its corrections the same way.
 
-Done when: every claim in the draft is `CONFIRMED` or corrected, every omission is added or rejected with a reason, the second accuracy pass is clean, and `wc -w` is under 450.
+Done when: every claim in the draft is `CONFIRMED` or corrected, every omission is added or rejected with a reason, and the second accuracy pass is clean.
 
 ## Step 7 — Write the file
 
@@ -155,6 +156,6 @@ Write the final report to `$OUT`, overwriting any earlier run from the same day.
 
 Reply with:
 
-- the report path and its word count;
-- every finding, one line each, including any `high` findings cut from the file;
+- the report path;
+- every finding that clears the critical bar, one line each, including any cut from the file;
 - housekeeping the user must know about: every stash created (repo, original branch, stash ref, message, and whether it was re-applied after a failed checkout), every repo left `review-only`, `stale`, or `incomplete`, and every skipped directory with its reason.

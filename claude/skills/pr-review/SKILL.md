@@ -20,9 +20,9 @@ Only two actions change GitHub: posting a review with comments, and approving. E
 
 ## Posting voice
 
-Everything posted to GitHub (inline comments, review bodies, approval bodies) is written in first person, as me, the reviewer: plain engineering prose, one or two sentences for each finding. Leave out any mention of how the review was produced, including tool, model, assistant, or automation names, skill or command names, confidence or severity tags copied from tool output, emojis, and signature lines. Just before every POST, scan the payload case-insensitively for `claude`, `anthropic`, `\bai\b`, `llm`, `gpt`, `codex`, `bot`, `automated`, `generated`, `assistant`, `/code-review`, and `🤖`, and rewrite any match as ordinary reviewer prose. Only a code identifier quoted in backticks (such as `aiClient`) is exempt. Paraphrase any prose you quote from a ticket, spec, or PR if it contains one of those terms.
+Everything posted to GitHub (inline comments, review bodies, approval bodies) is written in first person, as me, the reviewer: plain engineering prose, kept as short as each finding allows (Step 5 says what each kind of finding states). Leave out any mention of how the review was produced, including tool, model, assistant, or automation names, skill or command names, confidence or severity tags copied from tool output, emojis, and signature lines. Just before every POST, scan the payload case-insensitively for `claude`, `anthropic`, `\bai\b`, `llm`, `gpt`, `codex`, `bot`, `automated`, `generated`, `assistant`, `/code-review`, and `🤖`, and rewrite any match as ordinary reviewer prose. Only a code identifier quoted in backticks (such as `aiClient`) is exempt. Paraphrase any prose you quote from a ticket, spec, or PR if it contains one of those terms.
 
-## Subagent delegation — parallel by default
+## Subagent delegation
 
 Keep orchestration in the main loop; run the expensive, self-contained steps in **`general-purpose` subagents** via the `Agent` tool. When tasks are independent, **launch them in a single message** so they run concurrently.
 
@@ -78,10 +78,20 @@ Then fan out **one subagent per remaining PR** in a single message. Each runs:
   `query($id:ID!,$cursor:String){ node(id:$id){ ... on PullRequestReviewThread { comments(first:100, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ author{ login } body createdAt url diffHunk } } } } }`
   until `hasNextPage` is false. `--paginate` does not walk nested connections, so do this by hand.
 - **Issue comments by the identity set**: `gh api --hostname github.com repos/<owner>/<repo>/issues/<n>/comments --paginate --jq '.[] | select((.user.login|ascii_downcase) as $l | $l == "<me, lowercased>" or $l == "<alias, lowercased>" ...) | {login: .user.login, body, created_at, html_url}'`. `gh api --jq` has no `--arg`, so write the lowercased logins into the filter.
-- **Head, base, commits and CI**: `gh pr view <n> --repo github.com/<owner>/<repo> --json headRefOid,baseRefName,isDraft,state,mergeable,mergeStateStatus,statusCheckRollup,commits`. Normalize CI from `statusCheckRollup` by item type:
-  - A `CheckRun` is **fail** when `conclusion` is one of `FAILURE`, `ERROR`, `CANCELLED`, `TIMED_OUT`, `ACTION_REQUIRED`, `STARTUP_FAILURE`. It is **pending** when `status` is not `COMPLETED` (`QUEUED`, `IN_PROGRESS`, `PENDING`, `REQUESTED`, `WAITING`) or `conclusion` is `STALE`. Otherwise it passes (`SUCCESS`, `NEUTRAL`, `SKIPPED`).
-  - A legacy `StatusContext` has only `state`: `FAILURE`/`ERROR` → fail, `PENDING`/`EXPECTED` → pending, `SUCCESS` → pass.
-  - Aggregate: any fail → **fail**; otherwise any pending → **pending**; otherwise a non-empty rollup → **pass**; an empty rollup → **none**.
+- **Head, base, commits and CI**: fetch them with CI already normalized, so no subagent applies the mapping by hand:
+  ```bash
+  gh pr view <n> --repo github.com/<owner>/<repo> --json headRefOid,baseRefName,isDraft,state,mergeable,mergeStateStatus,statusCheckRollup,commits --jq '
+    del(.statusCheckRollup) + {ci: ([(.statusCheckRollup // [])[] |
+      if .__typename == "CheckRun" then
+        if (.conclusion as $c | ["FAILURE","ERROR","CANCELLED","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE"] | any(.[]; . == $c)) then "fail"
+        elif .status != "COMPLETED" or .conclusion == "STALE" then "pending"
+        else "pass" end
+      elif .state == "FAILURE" or .state == "ERROR" then "fail"
+      elif .state == "SUCCESS" then "pass"
+      else "pending" end]
+      | if any(. == "fail") then "fail" elif any(. == "pending") then "pending" elif length > 0 then "pass" else "none" end)}'
+  ```
+  A legacy `StatusContext` in any state other than `FAILURE`, `ERROR` or `SUCCESS` counts as pending, so an unknown state blocks approval.
 
 Return one record per PR:
 

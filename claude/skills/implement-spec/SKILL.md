@@ -1,71 +1,134 @@
 ---
 name: implement-spec
-description: "Implements a spec and its tickets as one PR on a single branch, with parallel implementer subagents working the ticket task graph. Grills the user on open decisions first and rebases the PR branch onto the default branch via the rebase-branch skill before any implementation starts. Invoke manually with a spec that has tickets."
+description: "Implements a spec and its tickets (GitHub issues, Jira issues, or /to-tickets local files) as one PR on a single branch, with parallel implementer subagents working the ticket task graph. Grills the user on open decisions first, cuts the branch from a freshly fetched default branch and opens a draft PR, then implements, merges, runs /spec-review and /codex-review plus the project's format/lint/build/test gates, and marks the PR ready. Invoke manually with a spec that has tickets."
 disable-model-invocation: true
 ---
 
-You have been provided a spec. This spec should have tickets associated with it, describing how to implement the spec.
+# Implement spec
 
-The goal is a PR which implements the entire spec on a single branch.
+You have been given a spec with tickets that describe how to implement it. The goal is **one PR that implements the entire spec on a single branch**.
 
-The tickets are not a list of steps. They are a **task graph** with blocking relationships between them. This means there is always a **frontier** of tickets which are ready to be grabbed.
+The tickets are not a list of steps. They are a **task graph** with blocking relationships, so there is always a **frontier**: the tickets whose blockers are all done, which can be worked on right now. Work the frontier with as much concurrency as the graph allows.
 
-Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, research notes, and previous commits. Don't duplicate information already available via pointers.
+Keep communication with subagents sparse. Pass **context pointers** (to the spec, the tickets, the notes directory, and previous commits) instead of copying their content into prompts.
 
-**Implementer subagents** should be run in the background where possible for **maximum concurrency**.
+## Roles
+
+- **Main loop:** the grilling session, every `AskUserQuestion`, every Skill invocation (`rebase-branch`, `spec-review`, `codex-review`; the Skill tool can't run inside a subagent), scheduling the frontier, the branch, pushes, and the PR.
+- **Exploration subagent** (optional): reads the codebase and external docs the tickets need, and saves markdown notes to the notes directory.
+- **Implementer subagents:** one per ticket, run in the background with `isolation: "worktree"` so each works on its own branch. Each one works test-first, runs the tests of the packages it touched, commits on its branch, and returns the branch name and a short summary.
+- **Merger subagent:** merges one finished ticket branch into the PR branch and runs the touched packages' tests there.
+
+## Tickets: where they come from
+
+Identify the tracker from the argument, and use the same tracker for the whole run:
+
+| Tracker | Spec and tickets | Blocking edges | Linked in the PR as | Marked done |
+|---|---|---|---|---|
+| **GitHub** | spec issue and its sub-issues, or issues referencing it (`gh issue view`, `gh issue list`) | native sub-issue/blocking links, else each ticket's "Blocked by" section | `Closes #N` per issue | automatically, when the PR merges |
+| **Jira** | spec issue and its child issues or epic children (Atlassian tools: `getJiraIssue`, `searchJiraIssuesUsingJql`) | "is blocked by" issue links, else the ticket's "Blocked by" text | ticket keys (`PROJ-123`) in the PR body, plus the spec key in the title if the repo's convention uses keys | only with the user's OK at the end (Step 9) |
+| **Local** (`/to-tickets`) | a spec file plus `.scratch/<feature>/issues/NN-*.md` | each file's `**Blocked by:**` line | the ticket file paths, listed in the PR body | set the file's `**Status:**` to `done` once it is merged |
+
+If the graph has a cycle, or a ticket names a blocker that doesn't exist, ask the user before going further.
 
 ## Steps
 
-1. Read the spec and tickets. Read enough to understand the task graph.
+### 1. Read the spec and tickets
 
-2. (optional) Use an **exploration subagent** to conduct any exploration required by the tickets - relevant codebase files or external documentation. Ensure the exploration subagent can save files - it should save its markdown notes in a directory outside the repo, accessible by all future subagents. This lets **implementer subagents** focus on implementation rather than exploration.
+Read the spec and enough of each ticket to build the task graph. Also read `CLAUDE.md` / `AGENTS.md`; their rules bind every implementer.
 
-2a. **Grill the user on the spec before any branch exists.** Invoke the **`grilling`** skill with the Skill tool and run its session to completion. `grilling` is the skill `/grill-me` loads; call it by that name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
+Create a **notes directory outside the repo** (`mktemp -d /tmp/implement-spec-XXXX`); every subagent gets a pointer to it. Optionally, run the exploration subagent now so implementers can focus on implementing instead of exploring.
 
-   Seed the design tree with every gap the spec, tickets, and exploration notes leave open: ambiguous acceptance criteria, conflicts between the spec and the code, blocking relationships the tickets imply but do not state, and decisions a ticket leaves to the implementer. Implementer subagents cannot ask the user, so a decision left open here becomes a guess in a worktree. Facts are your legwork (the exploration subagent, or a new one), never the user's.
+### 2. Grill the user before any branch exists
 
-   **Done when** the frontier is empty and the user has confirmed shared understanding. Then:
-   - Write the **settled decisions** as a numbered list (`D1`, `D2`, ...) to `decisions.md` in the notes directory from step 2 (create one outside the repo if step 2 was skipped). Every implementer subagent, and the step 8 fix subagent, gets a pointer to it.
-   - If a settled decision contradicts the spec or a ticket, ask the user whether to update that issue's text before step 3 links the PR to it.
-   - If the session shows the spec cannot be implemented as written, stop here: no branch, no draft PR.
+Invoke `mattpocock-skills:grilling` with the Skill tool and run its session to completion. It is the skill `/grill-me` loads; call it by this name, because `/grill-me` sets `disable-model-invocation` and the Skill tool refuses it.
 
-3. Create a branch, and a draft PR. The PR should be marked as 'closing' the spec issue and tickets (a `Closes #N` line per issue in the body). GitHub refuses a PR whose head has no commits beyond its base, so give the new branch an empty first commit. `--allow-empty` still commits anything already staged, so first run `git diff --cached --quiet`; if it exits non-zero, stop and ask the user how to handle the staged changes (never commit or push them). Then commit (`git commit --allow-empty -m "<subject>"`), confirm `git diff --quiet HEAD~1 HEAD` exits 0 (the commit changes no files), push it with `git push -u origin <branch>`, then open the PR with `gh pr create --draft`.
+Seed the design tree with every gap the spec, tickets, and notes leave open: ambiguous acceptance criteria, conflicts between the spec and the code, blocking relationships the tickets imply but don't state, and decisions a ticket leaves to the implementer. Implementer subagents can't ask the user, so a decision left open here becomes a guess in a worktree. Facts are your legwork, never the user's.
 
-4. **Rebase the branch onto the default branch before any implementation work starts.**
+**Done when** the frontier is empty and the user confirms you share an understanding. Then:
+- Write the settled decisions as `D1`, `D2`, ... to `decisions.md` in the notes directory. Every implementer, and the fix subagents later, gets a pointer to it.
+- If a decision contradicts the spec or a ticket, ask whether to update that issue's text before the PR links to it.
+- If the session shows the spec can't be implemented as written, stop: no branch, no PR.
 
-   Resolve the default ref and refresh it:
+### 3. Cut the branch from the default branch and open a draft PR
 
-   ```bash
-   git symbolic-ref --short refs/remotes/origin/HEAD   # -> e.g. "origin/main", already remote-qualified
-   git fetch origin '+refs/heads/<default-branch-name>:refs/remotes/origin/<default-branch-name>'
-   git rev-parse --verify refs/remotes/origin/<default-branch-name>   # must succeed before the ref is used
-   ```
+**Preconditions, checked first.** Each failure is a stop:
+- `git remote get-url origin` succeeds, and `gh auth status` passes for its host. The skill's output is a PR, so without these there is nothing to deliver.
+- Nothing is staged, and no tracked file is modified (`git status --porcelain --untracked-files=no` is empty). The PR branch is checked out in this checkout, and the implementers' worktrees branch from it. Don't stash; ask the user to commit or discard.
 
-   Pass the resolved string **verbatim** — it already carries the remote prefix, so never prepend `origin/` to it again. Fetch with the **explicit refspec** shown: a single-branch clone or a narrowed `remote.origin.fetch` can make a plain `git fetch origin <default-branch-name>` land in `FETCH_HEAD` only, leaving `origin/<default-branch-name>` stale or absent while the fetch still reports success.
+**Resolve and refresh the default ref.** Try `git symbolic-ref --short refs/remotes/origin/HEAD`, else parse `ref: refs/heads/<default>` from `git ls-remote --symref origin HEAD`. Then fetch with an explicit refspec, because a narrowed clone can otherwise update only `FETCH_HEAD`:
 
-   If `origin/HEAD` is unset, ask the remote directly with `git ls-remote --symref origin HEAD` and parse its `ref: refs/heads/<default-branch-name>	HEAD` record; then fetch and verify as above, use `origin/<default-branch-name>`, and — **only once that fetch has succeeded** — `git remote set-head origin --auto`, so the next run resolves it from the first command. (That command writes a symref to the remote-tracking ref, so it fails if the ref does not exist yet.) Do **not** fall back to a bare local `main`/`master` of unverified currency: step 3 has already created a draft PR, so a usable remote is a precondition of this whole skill — if the remote is unreachable, the default branch cannot be resolved, or the fetch/verify pair fails, stop and report rather than rebasing onto a stale local tip. Then, from the PR branch:
+```bash
+git fetch origin '+refs/heads/<default>:refs/remotes/origin/<default>'
+git rev-parse --verify refs/remotes/origin/<default>
+```
 
-   ```
-   /rebase-branch <resolved-default-ref>
-   ```
+If either fails, stop. Don't fall back to a local `main`, which may be stale. Call the result `<base>` (`origin/<default>`).
 
-   Why here: implementer subagents branch their worktrees off this branch, so any drift from the default branch is inherited by every one of them and only surfaces as conflicts at merge time in step 6. Rebasing once, up front, is the cheap version of that work.
+**Name the branch** using the repo's convention (`CLAUDE.md`, recent branch names), including a ticket key or issue number if the convention uses one. With no convention, use `implement/<spec-slug>`. If that branch already exists locally or on `origin`, this is a **resume**: go to the section *Resuming an existing branch* below instead.
 
-   - **Two early exits count as "already current"**, and neither is a failure: `rebase-branch` stops at its preflight when the branch tip *equals* the default ref's tip, and stops with "nothing to integrate" when the default ref is already an ancestor of `HEAD` (the usual outcome for the branch step 3 just created, whose only commit is the empty one). Record which one occurred and continue. Every other preflight stop is a real stop — never infer a no-op from the branch merely being new.
-   - `rebase-branch` owns conflict resolution and its own stop-and-ask gates. Do not pre-empt or auto-answer them; if it aborts, stop here and report rather than launching implementers onto a half-integrated tree.
-   - **Its codex review and its format/lint/build/test gates run over the whole repository and are not trivial** — let the full workflow run and honour its verdicts. It is still not the step 8 `/spec-review`, which runs over the finished implementation.
-   - **Check for an orphaned stash before moving on.** If the tree was dirty, `rebase-branch`'s preflight may have stashed it, and an early preflight exit never reaches the pop. Identify it by **object id**, not name or position — `git stash list` descriptions repeat across sessions and its `stash@{N}` selectors renumber whenever an entry is pushed. Record `git rev-parse --verify --quiet refs/stash` before invoking the skill and re-read it after: unchanged means nothing was stashed here, so restore nothing; changed means the new entry is `stash@{0}` — confirm its id matches. A surviving entry is **not** proof nothing was restored: a `git stash pop` that hit conflicts applies its changes and leaves the entry in place, so popping again would apply them twice. What `rebase-branch` reported (a pop, or a pop conflict) is the primary signal; corroborate with `git status --porcelain`, treating **any** unmerged state as a conflicted restore (`UU`, `AA`, `DD`, `AU`, `UD`, `UA`, `DU`), and with `git stash show --include-untracked -p stash@{0}` — the reference stashes via `stash push -u`, so plain `stash show -p` omits untracked files and makes a partial restore look complete. Only pop — `git stash pop stash@{0}`, naming the selector explicitly — when nothing was applied; otherwise finish resolving, leave the restored work in the working tree as uncommitted **and unstaged** changes (`git restore --staged .` unstages without touching file contents — staged is not the same as uncommitted), and `git stash drop stash@{0}`. If you cannot confirm the entry is fully represented in the tree, keep the stash and say so: an orphaned stash is recoverable, a dropped one is not. Check this on every exit path, including an abort, since `rebase-branch` only reaches its own stash restore in its Step 2.
-   - **Synchronize the remote branch yourself — `rebase-branch` never pushes.** Step 3 already pushed this branch to open the draft PR, so: after an early-exit no-op there is nothing to push; after a rebase that only fast-forwards, `git push <remote> <branch>`; only when the replay actually rewrote published commits, confirm with the user via `AskUserQuestion`, then `git push --force-with-lease <remote> <branch>`. Name the PR's remote and branch explicitly, and stop on any push failure — a draft PR pointing at an abandoned tip is worse than no push.
-   - **Re-read the spec and tickets (step 1) after any rebase that changed the tree**, and **re-validate the step 2 exploration notes against the rebased tree**, updating them in place. Those notes live outside the repository, so the rebase cannot fix stale paths, APIs, or recommendations in them — every implementer subagent reads them as fact. Re-check `decisions.md` the same way: a settled decision whose premise the rebase changed goes back to the user: reopen that branch and run grilling on it until its frontier is empty again and the user confirms, before any implementer starts.
+**Create the branch and the draft PR:**
 
-5. Use **implementer subagents** to implement each ticket. Each implementer subagent should work in its own worktree, on its own branch. An implementer (or the step 8 fix subagent) that meets a decision `decisions.md` does not settle, or finds a settled one rests on a wrong fact or is unsafe, returns `needs user decision` instead of guessing or overriding it; reopen that branch and run grilling on it until its frontier is empty again and the user confirms, record the result in `decisions.md` (marking any superseded decision), rework tickets already built on a superseded decision, and resume.
+```bash
+git switch --no-track -c <branch> <base>
+git commit --allow-empty -m "<subject>"      # GitHub refuses a PR with no commits beyond its base
+git push -u origin <branch>
+gh pr create --draft --base <default> --head <branch> --title "<title>" --body-file <body-file>
+```
 
-6. Once an **implementer subagent** completes, merge its work to the PR branch with a **merger subagent**.
+The precondition check already guarantees nothing is staged, so the empty commit really is empty. The PR body links the spec and the tickets the way the tracker table says, follows the repo's PR template if there is one, and ends with any trailers the environment requires.
 
-7. If this changes the **frontier** of available tickets, kick off more **implementer subagents** to work on the new tickets. This allows for maximum concurrency.
+A branch cut from the freshly fetched `<base>` is already current, so no rebase is needed.
 
-8. Once all tickets are complete, run `/spec-review <resolved-default-ref>` on the PR branch, passing the step 4 default ref as its fixed point so it does not stop to ask for one. Fix all issues raised by the code review in a single **implementer subagent**, and merge that subagent's work back to the PR branch the same way step 6 does — the fixes are not done until they are on the PR branch.
+#### Resuming an existing branch
 
-9. **Publish, then** mark the PR as ready for review. Steps 3 and 4 made the only pushes so far, both before any implementation: push the PR branch now, require the push to exit zero, and then confirm the **remote's** tip matches local `HEAD` by querying the remote rather than a local tracking ref — `git ls-remote --exit-code <remote> refs/heads/<branch>` and compare the SHA it prints with `git rev-parse HEAD`. `git rev-parse <remote>/<branch>` reads the local remote-tracking ref, which a narrowed fetch mapping can leave stale or absent even after a successful push. A non-zero status or a mismatch is a stop. Marking a PR ready while its commits are local makes reviewers read an empty or stale diff.
+Check it out (`git switch <branch>`, which must be clean per the preconditions). Find its PR (`gh pr list --head <branch> --state all`), and note which tickets are already merged on it (from its commit log, or the tickets' status). Then:
+- **`git merge-base --is-ancestor <base> HEAD` succeeds:** the branch is current; continue.
+- **It's behind, and none of its commits above `<base>` are published** (`git rev-list <base>..origin/<branch>` is empty, or the branch isn't on `origin`): invoke the `rebase-branch` skill with `<base>`. Let its conflict handling and questions run; if it aborts, stop.
+- **It's behind, and it has published commits above `<base>`** (the usual case once the draft PR exists): a rebase would need a force-push, which this skill never does. `AskUserQuestion`: **merge `<base>` into the branch** (no history rewrite), **continue as is**, or **stop**.
 
-10. Clean up all **implementer subagent** worktrees.
+After any rebase or merge, re-read the spec, tickets, and notes against the updated tree, and fix stale paths or APIs in the notes. Notes live outside the repo, so nothing updates them for you. A settled decision whose premise changed goes back to the user via grilling before any implementer starts.
+
+### 4. Work the frontier
+
+Repeat until every ticket is merged:
+
+1. **Launch** one implementer subagent per frontier ticket, in the background, in a single message. Each gets pointers to: its ticket, the spec, `decisions.md`, the notes directory, and the PR branch tip it starts from. Its first check is that its worktree contains that tip (`git merge-base --is-ancestor <tip> HEAD`); if it doesn't, it stops and reports rather than building on the wrong base.
+2. **On a decision the notes don't settle**, an implementer returns `needs user decision` instead of guessing. Reopen that branch of the design tree with grilling, record the answer in `decisions.md` (marking anything superseded), rework tickets already built on a superseded decision, and relaunch.
+3. **Merge** each finished ticket with a merger subagent, **one merge at a time**, because concurrent merges into one branch race. The merger runs `git merge --no-ff <ticket-branch>` on the PR branch, resolves conflicts in line with both tickets' intent, and runs the touched packages' tests. If they fail, send the ticket back to an implementer with the failure output.
+4. **Mark local tickets done** after their merge (set `**Status:** done`). GitHub and Jira tickets are handled in Steps 3 and 9.
+5. **Recompute the frontier** after each merge and launch whatever it unblocked right away, without waiting for the rest of the batch.
+
+### 5. Review against the spec (`spec-review`)
+
+Once every ticket is merged, invoke `spec-review` with `<base>` as its fixed point, so it doesn't stop to ask for one. Fix everything it raises in a single implementer subagent, branched from the current PR branch tip, and merge that branch the same way as in Step 4. The fixes aren't done until they're on the PR branch.
+
+### 6. Codex review (`codex-review`)
+
+Invoke `codex-review` on the PR branch, naming its scope as the **branch delta against `<base>`**, so it doesn't stop to ask. It adjudicates each finding, fixes the accepted ones, and runs the project's gates. Its questions are the user's to answer; let them through. When it finishes, commit its fixes on the PR branch, staging by explicit path (never `git add -A`) and following the repo's commit convention.
+
+### 7. Verify: format, lint, build, full tests
+
+The PR goes ready only on green. If `codex-review`'s final verification ran all four gates green and nothing has changed since, that result counts. Otherwise run them now, in order, over the whole branch: **format** (apply, then check), **lint**, **build**, and the **full test suite**, including any integration or e2e suites CI runs. Use the repo's own commands from `CLAUDE.md`, the README, CI config, or the task file, and give each one a timeout.
+
+- **A failure caused by this work:** fix it, commit, and re-run all four.
+- **A failure that looks pre-existing:** prove it by running the same command on `<base>` in a throwaway worktree (`git worktree add --detach <tmp> <base>`, then remove it). If it fails there too, `AskUserQuestion`: fix it, stop, or mark the PR ready with the failure named in the PR body. If it passes there, the failure is yours.
+- **A gate the repo genuinely doesn't have:** report it as `not configured`, never as green.
+
+### 8. Publish and mark ready
+
+```bash
+git push origin <branch>                                 # fast-forward only; never --force
+git ls-remote --exit-code origin refs/heads/<branch>     # its SHA must equal: git rev-parse HEAD
+gh pr ready <branch>
+```
+
+Compare against the remote itself, not the local `origin/<branch>` ref, which a narrowed fetch can leave stale. A rejected push, a non-zero exit, or a SHA mismatch is a stop. Marking a PR ready while its commits are local shows reviewers an empty or stale diff.
+
+Update the PR body with: the tickets delivered, the decisions recorded, the `spec-review` and `codex-review` outcomes, and each gate's state.
+
+### 9. Wrap up
+
+- **Jira:** `AskUserQuestion` whether to transition the delivered tickets (for example to "In Review"), and name the tickets and the target status. Transitioning is visible to the whole team, so it needs an explicit yes.
+- **Worktrees:** remove each implementer worktree whose branch is merged (`git worktree remove <path>`, then `git branch -d <ticket-branch>`). `-d` refuses to delete an unmerged branch; if it does, report that branch instead of forcing it. Finish with `git worktree prune`.
+- **Report:** the PR URL and state; tickets delivered and how each was marked; the decisions; parallelism (how many batches, the widest frontier); the `spec-review` and `codex-review` outcomes (accept / reject / defer counts); each gate with its command and state; and anything not done, with its reason.

@@ -7,7 +7,7 @@ The step is done when every source below has either been compared against the di
 ## 1. Jira ticket
 
 - **Find the key.** Look for keys matching `[A-Z][A-Z0-9]+-\d+` in the head branch name, the title, the body, and the commit messages, in that order. The first key found in the branch name, or else the first found anywhere, is **primary**. Fetch every distinct key.
-- **Fetch it.** Load the Atlassian tools with `ToolSearch` (`select:mcp__claude_ai_Atlassian__getAccessibleAtlassianResources,mcp__claude_ai_Atlassian__getJiraIssue`). Resolve the `cloudId`, then fetch each ticket. Capture the summary, description, acceptance criteria (whether a field or a section of the description), issue type, and status.
+- **Fetch it.** The Atlassian tools are deferred and may be exposed as `mcp__claude_ai_Atlassian__<tool>` or `mcp__plugin_engineering_atlassian__<tool>`. Load `getAccessibleAtlassianResources` and `getJiraIssue` with a `ToolSearch` keyword query (`+atlassian getAccessibleAtlassianResources getJiraIssue`) and use whichever prefix comes back. Resolve the `cloudId`, then fetch each ticket. Capture the summary, description, acceptance criteria (whether a field or a section of the description), issue type, and status.
 - **If the fetch fails** (tools not connected, auth, not found), record status `unavailable` with the error and compare against the remaining sources. Use only ticket content you actually fetched.
 - **If there is no key**, check whether the repo links tickets: `gh pr list --repo github.com/<owner>/<repo> --state merged --limit 20 --json title,headRefName`. When any of those carry a key, record status `missing` and report the missing link as a finding; otherwise record status `none-in-repo`.
 
@@ -16,7 +16,7 @@ The step is done when every source below has either been compared against the di
 A spec is present when any of these exist at `<head>`:
 - `specs/<name>/`, where `<name>` matches the head branch with its prefix (`feature/`, `specs/`, `fix/`, ...) removed, or the ticket key;
 - in-repo spec or design files the PR body links to (a `github.com/<owner>/<repo>/blob/...` URL or a relative path; read them at `<head>`), or that the PR adds or changes under `specs/` or `docs/`;
-- a Confluence page the PR body or the ticket links to, fetched with `mcp__claude_ai_Atlassian__getConfluencePage`.
+- a Confluence page the PR body or the ticket links to, fetched with the Atlassian `getConfluencePage` tool (loaded the same way, `+atlassian getConfluencePage`).
 
 Read the plan, requirements, and validation files when present. Record any other link (Google Docs, Notion, and so on) as `spec: linked but not fetched (<url>)` in the result, not as absent. If no spec exists, record `spec: none` and move on.
 

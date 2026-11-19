@@ -17,10 +17,14 @@ This dotfiles repository provides a consistent development environment setup acr
 dotfiles/
 ├── automation/             # Scheduled jobs
 │   └── claude-pr-review/   # systemd timer running /pr-review over a repo list
-├── claude/                 # Claude CLI configuration
-│   ├── .claude/
-│   │   └── settings.local.json
-│   └── install-instructions.md
+├── claude/                 # Claude Code configuration (installed into ~/.claude/)
+│   ├── CLAUDE.md           # global memory; imports AGENTS.MD
+│   ├── AGENTS.MD           # global agent instructions
+│   ├── settings.json       # global settings, plugins, status line
+│   ├── statusline-command.sh
+│   ├── skills/             # personal skills (synced/ is managed by claude.ai)
+│   └── .claude/
+│       └── settings.local.json
 ├── sublime/                # Sublime Text editor configuration
 │   ├── Preferences.sublime-settings
 │   ├── python.sublime-project
@@ -41,10 +45,11 @@ dotfiles/
 
 ## Configuration Details
 
-### Claude CLI (`claude/`)
-- **Permissions**: Configured to allow bash commands with ripgrep (rg:*)
-- **MCP Integration**: Setup instructions for AWS MCP server using uvx
-- **AI-Assisted Development**: Integration with Claude AI for coding assistance
+### Claude Code (`claude/`)
+- **Global instructions**: `CLAUDE.md` imports `AGENTS.MD` with `@AGENTS.MD`. The import is case-sensitive on Linux, so it must match the filename exactly.
+- **Settings**: `settings.json` holds global settings, enabled plugins, and the status line (`statusline-command.sh`).
+- **Skills**: `skills/` holds personal skills, including a spec-driven workflow: `/constitution` writes `specs/{mission,tech-stack,roadmap}.md`, `/feature-spec` specs the next roadmap phase, and `/implement-plan` / `/implement-spec` build it. Most of them use codex as a second reviewer. `skills/synced/` mirrors the skills synced from claude.ai.
+- **Keeping it in sync**: Claude Code reads from `~/.claude/`, which holds copies of these files, not symlinks. After editing a skill in `~/.claude/skills/`, copy it back with `rsync -a --delete ~/.claude/skills/<name>/ claude/skills/<name>/`.
 
 ### Sublime Text (`sublime/`)
 - **Theme**: GitHub Dark color scheme with Default Dark UI
@@ -138,7 +143,14 @@ To use these configurations:
    cp ~/dotfiles/zed/settings.json ~/.config/zed/
    ```
 
-5. Run the Zsh configuration script for additional setup:
+5. For Claude Code, copy the global files and skills into `~/.claude/`:
+   ```bash
+   cp ~/dotfiles/claude/{CLAUDE.md,AGENTS.MD,statusline-command.sh} ~/.claude/
+   rsync -a --exclude synced/ ~/dotfiles/claude/skills/ ~/.claude/skills/
+   ```
+   Merge `claude/settings.json` into `~/.claude/settings.json` by hand rather than copying it over, because it holds machine-specific paths such as the status line command.
+
+6. Run the Zsh configuration script for additional setup:
    ```bash
    bash ~/dotfiles/zsh/configure-zsh.sh
    ```
