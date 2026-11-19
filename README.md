@@ -48,7 +48,7 @@ dotfiles/
 ### Claude Code (`claude/`)
 - **Global instructions**: `CLAUDE.md` imports `AGENTS.MD` with `@AGENTS.MD`. The import is case-sensitive on Linux, so it must match the filename exactly.
 - **Settings**: `settings.json` holds global settings, enabled plugins, and the status line (`statusline-command.sh`).
-- **Skills**: `skills/` holds personal skills, including a spec-driven workflow: `/constitution` writes `specs/{mission,tech-stack,roadmap}.md`, `/feature-spec` specs the next roadmap phase, and `/implement-plan` / `/implement-spec` build it. Most of them use codex as a second reviewer. `skills/synced/` mirrors the skills synced from claude.ai.
+- **Skills**: `skills/` holds personal skills, including a spec-driven workflow: `/constitution` writes `specs/{mission,tech-stack,roadmap}.md`, `/spec` specs the next roadmap phase, and `/implement-plan` / `/code` build it. Most of them use codex as a second reviewer. `skills/synced/` mirrors the skills synced from claude.ai.
 - **Keeping it in sync**: Claude Code reads from `~/.claude/`, which holds copies of these files, not symlinks. After editing a skill in `~/.claude/skills/`, copy it back with `rsync -a --delete ~/.claude/skills/<name>/ claude/skills/<name>/`.
 
 ### Sublime Text (`sublime/`)

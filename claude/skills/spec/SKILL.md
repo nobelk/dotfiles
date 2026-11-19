@@ -1,9 +1,9 @@
 ---
-name: feature-spec
+name: spec
 description: Writes the planning spec for the next roadmap phase. Grills the user on scope, key decisions, and validation, then writes specs/<name>/{requirements,plan,validation}.md on a specs/<name> branch in its own git worktree, marks the phase `in progress` in specs/roadmap.md, codex-reviews the files, commits them, and pushes the branch. Takes a branch name (auto-prefixed with specs/; derived from specs/roadmap.md if omitted). Use when starting a new feature, speccing the next roadmap phase, or turning a /constitution roadmap phase into a buildable plan.
 ---
 
-# Feature spec skill
+# Spec skill
 
 Turn one roadmap phase into three planning docs under `specs/<name>/`: `requirements.md`, `plan.md`, `validation.md`. They are written only after a grilling session has settled every open decision. Codex then reviews them, the valid findings are folded back in, and the result is committed and pushed on its own `specs/<name>` branch. `/implement-plan` builds from `plan.md` later.
 
@@ -139,8 +139,8 @@ Use the codex plugin's **adversarial review**, because it accepts focus text and
 ```bash
 ls -d ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs 2>/dev/null | sort -V | tail -1   # -> <companion>
 # Bash tool with run_in_background: true
-CODEX_COMPANION_SESSION_ID=feature-spec-<slug>-<random> timeout -k 10 660 node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"
-CODEX_COMPANION_SESSION_ID=feature-spec-<slug>-<random> node "<companion>" status --json   # lists only this launch's job
+CODEX_COMPANION_SESSION_ID=spec-<slug>-<random> timeout -k 10 660 node "<companion>" adversarial-review --background --scope working-tree -- "<focus>"
+CODEX_COMPANION_SESSION_ID=spec-<slug>-<random> node "<companion>" status --json   # lists only this launch's job
 node "<companion>" status <job-id> --wait --timeout-ms 240000 --json                       # repeat until finished
 node "<companion>" result <job-id>
 ```

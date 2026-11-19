@@ -1,6 +1,6 @@
 ---
 name: constitution
-description: Writes (or revises) the project constitution - specs/mission.md, specs/tech-stack.md, and specs/roadmap.md - from the repo's README.md and a grilling session with the user, then has codex review the three files, adjudicates every finding (accept / reject / defer), and folds the valid ones back in. The roadmap is a dependency-ordered list of very small, independently shippable phases that /feature-spec can pick up one at a time. Leaves the files uncommitted. Use when starting a new project, bootstrapping specs/ before the first /feature-spec, or whenever the user asks for a constitution, mission statement, tech-stack doc, or implementation roadmap for the repo - including refreshing an existing one after the project's direction changed.
+description: Writes (or revises) the project constitution - specs/mission.md, specs/tech-stack.md, and specs/roadmap.md - from the repo's README.md and a grilling session with the user, then has codex review the three files, adjudicates every finding (accept / reject / defer), and folds the valid ones back in. The roadmap is a dependency-ordered list of very small, independently shippable phases that /spec can pick up one at a time. Leaves the files uncommitted. Use when starting a new project, bootstrapping specs/ before the first /spec, or whenever the user asks for a constitution, mission statement, tech-stack doc, or implementation roadmap for the repo - including refreshing an existing one after the project's direction changed.
 ---
 
 # Constitution skill
@@ -11,7 +11,7 @@ Write the three documents every later planning step stands on:
 - `specs/tech-stack.md` - what it is built with, and the conventions and gates that follow from that.
 - `specs/roadmap.md` - the high-level implementation order, as **very small phases**.
 
-`/feature-spec` reads all three: it takes the next unstarted roadmap phase, derives its branch name from the phase name, and checks its plan against the mission and tech stack. Whatever this skill writes is the contract that skill builds on, so precision matters more than polish.
+`/spec` reads all three: it takes the next unstarted roadmap phase, derives its branch name from the phase name, and checks its plan against the mission and tech stack. Whatever this skill writes is the contract that skill builds on, so precision matters more than polish.
 
 The flow is: gather facts → grill the user on the decisions → write → codex review → adjudicate and fix → report. The files are left **uncommitted** for the user to read and commit themselves.
 
@@ -32,7 +32,7 @@ Work from the repository root (`git rev-parse --show-toplevel`; if it isn't a gi
 - **README.md** - read it. It is the primary statement of intent. If there is none, don't stop: ask the user for a two-or-three-sentence pitch and use that as the seed instead.
 - **Existing constitution** - check for `specs/mission.md`, `specs/tech-stack.md`, `specs/roadmap.md`.
   - None exist → **create mode**.
-  - Any exist → **revise mode**. Read them; they are the starting point, not something to replace. Also list `specs/*/` directories: each one is a phase `/feature-spec` has already specced, which tells you which roadmap phases are in flight or done.
+  - Any exist → **revise mode**. Read them; they are the starting point, not something to replace. Also list `specs/*/` directories: each one is a phase `/spec` has already specced, which tells you which roadmap phases are in flight or done.
 - **Agent docs** - read `CLAUDE.md` / `AGENTS.md` and any architecture or convention docs they cite. Rules stated there are facts the tech stack must agree with, not questions for the user.
 
 ## Step 1 - Gather the facts (your job, not the user's)
@@ -83,7 +83,7 @@ Write nothing under `specs/` until the session is done.
 
 ## Step 3 - Write the three files
 
-Create `specs/` if needed. In revise mode, edit the existing files rather than regenerating them: keep wording the user didn't ask to change, and keep phase numbers and names stable, because `/feature-spec` branch and directory names were derived from them.
+Create `specs/` if needed. In revise mode, edit the existing files rather than regenerating them: keep wording the user didn't ask to change, and keep phase numbers and names stable, because `/spec` branch and directory names were derived from them.
 
 Write for the next agent that reads these files cold: concrete nouns, no marketing, every claim traceable to a settled decision, the README, or the repo.
 
@@ -144,18 +144,18 @@ Versions: copy pinned versions from manifests. For a choice not yet in the repo,
 
 ### `specs/roadmap.md`
 
-The roadmap sets the high-level implementation order, not the design. The detail belongs in each phase's `/feature-spec`. Its phases are **very small**, because each one becomes a single feature spec, one branch, and one reviewable PR. Big phases produce specs nobody can review and PRs nobody can merge.
+The roadmap sets the high-level implementation order, not the design. The detail belongs in each phase's `/spec`. Its phases are **very small**, because each one becomes a single feature spec, one branch, and one reviewable PR. Big phases produce specs nobody can review and PRs nobody can merge.
 
 A phase is small enough when **all** of these hold:
 - **One capability.** It delivers one observable thing a user, operator, or developer can do or verify. If the name needs an "and", split the phase.
 - **Vertical, not horizontal.** It cuts end to end through whatever layers it needs. "Set up the database" on its own is a layer, not a phase. The exception is the walking skeleton, which is allowed to be mostly plumbing because proving the plumbing is its capability.
-- **One PR.** Its `/feature-spec` plan would hold roughly 2-5 task groups, and a reviewer could read the whole change in one sitting.
+- **One PR.** Its `/spec` plan would hold roughly 2-5 task groups, and a reviewer could read the whole change in one sitting.
 - **Independently verifiable.** It has a binary "Done when" (a test passes, a command produces an output, a demo works) that doesn't depend on a later phase.
 - **Leaves the system working.** After it merges, main builds, passes its gates, and does something it couldn't do before.
 
 Order the phases: **Phase 1 is the walking skeleton** (build, test, and CI gates green, plus the thinnest end-to-end path through the chosen stack). After that come dependencies before dependents, the riskiest assumptions as early as their dependencies allow, and then value. Mark the phase where the MVP is reached.
 
-Keep phase names short (four words at most) and distinctive: `/feature-spec` turns them into kebab-case branch names.
+Keep phase names short (four words at most) and distinctive: `/spec` turns them into kebab-case branch names.
 
 ```markdown
 # Roadmap
@@ -233,4 +233,4 @@ Leave the three files uncommitted. Report:
 - In revise mode: what changed in each file, and which phases kept their `done` / `in progress` status.
 - The codex outcome: total findings and the accept / reject / defer breakdown, with a one-line reason for each rejection and a destination for each deferral (or which Step 4 fallback was used and why).
 - Any README/code disagreements the user resolved, if the README now needs updating to match.
-- Next step: review and commit the files, then run `/feature-spec` to spec Phase 1 (or the next unstarted phase).
+- Next step: review and commit the files, then run `/spec` to spec Phase 1 (or the next unstarted phase).

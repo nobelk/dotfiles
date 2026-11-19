@@ -7,7 +7,7 @@ description: Implements a markdown plan file end to end on the current branch �
 
 Take a written markdown plan and **build it to done** on the **current branch**, acting as a principal software engineer: deliberate, test-first, minimal, and faithful to the repo's own rules.
 
-The argument is `<plan-file>` — the path to a single markdown file describing the work (e.g. `docs/plans/rate-limiter.md`). Unlike `/implement-spec`, there is no spec-plus-tickets task graph and no per-ticket worktrees: the plan file is the whole contract and the work lands on whatever branch is checked out now.
+The argument is `<plan-file>` — the path to a single markdown file describing the work (e.g. `docs/plans/rate-limiter.md`). Unlike `/code`, there is no spec-plus-tickets task graph and no per-ticket worktrees: the plan file is the whole contract and the work lands on whatever branch is checked out now.
 
 Output is working, reviewed, verified code committed and pushed to the current branch's remote, with a GitHub pull request created or updated for it.
 

@@ -1,10 +1,10 @@
 ---
-name: implement-spec
+name: code
 description: "Implements a spec and its tickets (GitHub issues, Jira issues, or /to-tickets local files) as one PR on a single branch. Settles open decisions and each ticket's test seams with the user up front, then runs parallel implementer subagents that follow the tdd skill across the ticket task graph. After implementation it measures coverage of the changed code and confirms with the user which gaps to close, then finds missing end-to-end functional tests and confirms which to add, writing both in parallel. Finishes with /spec-review, /codex-review, and the project's format/lint/build/test gates, and marks the PR ready. Invoke manually with a spec that has tickets."
 disable-model-invocation: true
 ---
 
-# Implement spec
+# Code skill
 
 You have been given a spec with tickets that describe how to implement it. The goal is **one PR that implements the entire spec on a single branch**, built test-first and verified end to end.
 
@@ -38,7 +38,7 @@ If the graph has a cycle, or a ticket names a blocker that doesn't exist, ask th
 
 ### 1. Read the spec and tickets (fan out)
 
-Create a **notes directory outside the repo** (`mktemp -d /tmp/implement-spec-XXXX`); every subagent gets a pointer to it. Resolve the **tdd skill path** once, because implementers read it directly:
+Create a **notes directory outside the repo** (`mktemp -d /tmp/code-XXXX`); every subagent gets a pointer to it. Resolve the **tdd skill path** once, because implementers read it directly:
 
 ```bash
 ls -d ~/.claude/plugins/cache/claude-plugins-official/mattpocock-skills/*/skills/*/tdd 2>/dev/null | sort -V | tail -1   # -> <tdd-dir>

@@ -118,7 +118,7 @@ Give each subagent a self-contained prompt: the exact commands, the resolved val
 
 Dispatch the spec-brief subagent as soon as Step 0 is done, in the same message as Step 2a's background runs - nothing in Step 2 waits for it.
 
-**The spec** - what the branch was *supposed* to do. Look, in order, for: `specs/<current-branch>/` or `specs/<branch-slug>/` (the `requirements.md` / `plan.md` / `validation.md` trio this repo's `/feature-spec` writes), a plan file named in the branch's commit messages, a linked issue or PR body. A roadmap entry is context, **not** an acceptance spec.
+**The spec** - what the branch was *supposed* to do. Look, in order, for: `specs/<current-branch>/` or `specs/<branch-slug>/` (the `requirements.md` / `plan.md` / `validation.md` trio this repo's `/spec` writes), a plan file named in the branch's commit messages, a linked issue or PR body. A roadmap entry is context, **not** an acceptance spec.
 
 If no spec is found, **stop and ask** via `AskUserQuestion`: the user may know where it lives, or may confirm there is none. Offer: point me at it (free-text path), review against the linked issue/PR instead, or proceed on repo standards alone. Only the last option drops the spec axis, and choosing it is an explicit acknowledgment that this part of the review cannot be completed - the Step 9 report and the PR body must both say so. Review only against a spec that exists.
 

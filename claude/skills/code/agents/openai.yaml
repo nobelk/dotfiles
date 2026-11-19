@@ -1,5 +1,5 @@
 interface:
-  display_name: "Implement Spec"
+  display_name: "Code"
   short_description: "Implement a whole spec as one PR"
 policy:
   allow_implicit_invocation: false
