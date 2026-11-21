@@ -1,0 +1,1 @@
+{"eval_name": "happy-path", "prompt": "/review-response  (no argument; run from a clone with the PR branch checked out; simulated user accepts every recommended answer)", "assertions": []}

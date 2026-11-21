@@ -1,0 +1,1 @@
+{"eval_name": "current-branch-with-pr", "prompt": "/refactor  (no argument; the PR branch is checked out and has an open PR; real codex; simulated user accepts every recommended answer)", "assertions": []}

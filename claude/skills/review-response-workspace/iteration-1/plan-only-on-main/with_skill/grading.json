@@ -1,0 +1,80 @@
+{
+  "expectations": [
+    {
+      "text": "The plan file review_response_7.md exists in the repo directory",
+      "passed": true,
+      "evidence": "24687 chars"
+    },
+    {
+      "text": "The plan file is never committed",
+      "passed": true,
+      "evidence": "no commit touches it"
+    },
+    {
+      "text": "The grilling round uses the grilling skill's question format (Q-numbered, with a recommended answer)",
+      "passed": false,
+      "evidence": "Q1=True, arrow=False"
+    },
+    {
+      "text": "The plan covers unresolved thread 5001",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5002",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5003",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5004",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "Nothing was written to GitHub (no reply, comment, body edit, or reviewer request)",
+      "passed": true,
+      "evidence": "0 writes"
+    },
+    {
+      "text": "The remote PR branch is unchanged",
+      "passed": true,
+      "evidence": "c5457180 vs start c5457180"
+    },
+    {
+      "text": "No commit was created locally",
+      "passed": true,
+      "evidence": "2 commits in the repo (2 at start)"
+    },
+    {
+      "text": "The user stays on their branch (main)",
+      "passed": true,
+      "evidence": "main"
+    },
+    {
+      "text": "Tracked files are untouched",
+      "passed": true,
+      "evidence": "clean"
+    },
+    {
+      "text": "The first grilling round raises the checkout blocker",
+      "passed": true,
+      "evidence": "mentions checkout"
+    },
+    {
+      "text": "The report says nothing was changed or posted and what execution needs",
+      "passed": false,
+      "evidence": ""
+    }
+  ],
+  "summary": {
+    "passed": 12,
+    "failed": 2,
+    "total": 14,
+    "pass_rate": 0.857
+  }
+}

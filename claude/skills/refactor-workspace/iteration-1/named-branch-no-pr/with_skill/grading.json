@@ -1,0 +1,125 @@
+{
+  "expectations": [
+    {
+      "text": "The plan is written to refactor-feat-ORD-31-quote.md in the workspace root",
+      "passed": true,
+      "evidence": "['repo-worktrees/feat-ORD-31-quote/refactor-feat-ORD-31-quote.md']"
+    },
+    {
+      "text": "The plan file is never committed",
+      "passed": true,
+      "evidence": "no commit touches it"
+    },
+    {
+      "text": "Questions use the grilling format (Q-numbered rounds with the \u2753 and \u27a1\ufe0f markers)",
+      "passed": true,
+      "evidence": "\u2753 x12, \u27a1\ufe0f x12"
+    },
+    {
+      "text": "A publish round is shown before anything is sent",
+      "passed": true,
+      "evidence": "present"
+    },
+    {
+      "text": "The plan cites clean-code rule ids for its items",
+      "passed": true,
+      "evidence": "['C1', 'C2', 'C3', 'C4', 'C5', 'C8', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'F1', 'F2', 'F3', 'F4', 'F6', 'G2', 'N1', 'N5', 'SM5', 'T1', 'T2', 'T5', 'U4', 'U6']"
+    },
+    {
+      "text": "The plan records the architecture rules it judged against (cites docs/architecture.md)",
+      "passed": true,
+      "evidence": "cited"
+    },
+    {
+      "text": "Every plan item ends as done, none left planned",
+      "passed": true,
+      "evidence": "['done', 'done', 'done', 'done', 'done', 'done']"
+    },
+    {
+      "text": "The push landed: the remote branch equals the workspace HEAD and moved past the start",
+      "passed": true,
+      "evidence": "remote 76aab05e, local 76aab05e, start a6869ab5"
+    },
+    {
+      "text": "The push was a fast-forward (history not rewritten)",
+      "passed": true,
+      "evidence": "start is an ancestor of the remote head"
+    },
+    {
+      "text": "The work lands as several commits in the repo's convention",
+      "passed": true,
+      "evidence": "[\"test(quote): pin the quote command's CLI contract (ORD-31)\", 'refactor(quote): price quotes through a QuoteOrder use case (ORD-31)', 'refactor(quote): move the minimum-order rule into the domain (ORD-31)', 'refactor(quote): define shipping rates in the composition root (ORD-31)', 'test(quote): tes"
+    },
+    {
+      "text": "All gates pass at HEAD, including the architecture gate that failed at the start",
+      "passed": true,
+      "evidence": "{'lint': 0, 'arch': 0, 'test': 0}"
+    },
+    {
+      "text": "Behavior is preserved: the CLI prints the same output as before for every probe order",
+      "passed": true,
+      "evidence": "12 probes identical"
+    },
+    {
+      "text": "The discount-boundary bug (R2) is either left alone or fixed in its own fix commit, never inside a refactor commit",
+      "passed": true,
+      "evidence": "boundary output changed: True; fix commits: ['fix(quote): discount orders of exactly 100.00 (ORD-31)']"
+    },
+    {
+      "text": "The plan surfaces the R2 boundary bug as a correctness item",
+      "passed": true,
+      "evidence": "found"
+    },
+    {
+      "text": "The domain no longer builds its own adapter or hard-codes the rates file path",
+      "passed": true,
+      "evidence": "clean"
+    },
+    {
+      "text": "The minimum-order rule is out of the CLI adapter",
+      "passed": true,
+      "evidence": "no `< 10` comparison in orders/adapters"
+    },
+    {
+      "text": "The flag arguments are gone (no `flag`/`f2` parameters)",
+      "passed": true,
+      "evidence": "no flag parameters"
+    },
+    {
+      "text": "Commented-out code and the closing comment are removed",
+      "passed": true,
+      "evidence": "removed"
+    },
+    {
+      "text": "Magic numbers are named (a constant for the discount)",
+      "passed": true,
+      "evidence": "constant found"
+    },
+    {
+      "text": "Tests are split and named for behavior (no test_1/test_2; more tests than before)",
+      "passed": true,
+      "evidence": "39 tests"
+    },
+    {
+      "text": "A PR was opened against main with the refactor block in its body",
+      "passed": true,
+      "evidence": "open=True, block=True"
+    },
+    {
+      "text": "The work happened in a worktree beside the repo",
+      "passed": true,
+      "evidence": "repo-worktrees/feat-ORD-31-quote"
+    },
+    {
+      "text": "The user's own checkout is untouched (still on main, clean)",
+      "passed": true,
+      "evidence": "## main...origin/main"
+    }
+  ],
+  "summary": {
+    "passed": 23,
+    "failed": 0,
+    "total": 23,
+    "pass_rate": 1.0
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "expectations": [
+    {
+      "text": "The plan is written to refactor-7.md in the workspace root",
+      "passed": true,
+      "evidence": "['repo/refactor-7.md']"
+    },
+    {
+      "text": "The plan file is never committed",
+      "passed": true,
+      "evidence": "no commit touches it"
+    },
+    {
+      "text": "Questions use the grilling format (Q-numbered rounds with the \u2753 and \u27a1\ufe0f markers)",
+      "passed": true,
+      "evidence": "\u2753 x14, \u27a1\ufe0f x14"
+    },
+    {
+      "text": "A publish round is shown before anything is sent",
+      "passed": true,
+      "evidence": "present"
+    },
+    {
+      "text": "The plan cites clean-code rule ids for its items",
+      "passed": true,
+      "evidence": "['C1', 'C2', 'C3', 'C4', 'C5', 'C8', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'F1', 'F2', 'F6', 'G2', 'G3', 'N1', 'N3', 'N4', 'N5', 'O1', 'O2', 'O3', 'O4', 'O5', 'O6', 'S7', 'SM5', 'T1', 'T2', 'T4', 'T5', 'U1', 'U2', 'U4', 'U6']"
+    },
+    {
+      "text": "The plan records the architecture rules it judged against (cites docs/architecture.md)",
+      "passed": true,
+      "evidence": "cited"
+    },
+    {
+      "text": "Every plan item ends as done, none left planned",
+      "passed": true,
+      "evidence": "['done', 'done', 'done', 'done', 'done', 'done', 'done', 'done']"
+    },
+    {
+      "text": "The push landed: the remote branch equals the workspace HEAD and moved past the start",
+      "passed": true,
+      "evidence": "remote 13e1ea3c, local 13e1ea3c, start a6869ab5"
+    },
+    {
+      "text": "The push was a fast-forward (history not rewritten)",
+      "passed": true,
+      "evidence": "start is an ancestor of the remote head"
+    },
+    {
+      "text": "The work lands as several commits in the repo's convention",
+      "passed": true,
+      "evidence": "['test(quote): pin the quote CLI contract (ORD-31)', 'test: share the tax-rates fake between test modules (ORD-31)', 'refactor(quote): extract QuoteOrder use case and inject tax rates (ORD-31)', 'refactor(quote): move minimum-order rule into the domain (ORD-31)', 'refactor(quote): pass shipping rate"
+    },
+    {
+      "text": "All gates pass at HEAD, including the architecture gate that failed at the start",
+      "passed": true,
+      "evidence": "{'lint': 0, 'arch': 0, 'test': 0}"
+    },
+    {
+      "text": "Behavior is preserved: the CLI prints the same output as before for every probe order",
+      "passed": true,
+      "evidence": "12 probes identical"
+    },
+    {
+      "text": "The discount-boundary bug (R2) is either left alone or fixed in its own fix commit, never inside a refactor commit",
+      "passed": true,
+      "evidence": "boundary output changed: True; fix commits: ['fix(quote): discount a subtotal of exactly 100.00 (ORD-31)']"
+    },
+    {
+      "text": "The plan surfaces the R2 boundary bug as a correctness item",
+      "passed": true,
+      "evidence": "found"
+    },
+    {
+      "text": "The domain no longer builds its own adapter or hard-codes the rates file path",
+      "passed": true,
+      "evidence": "clean"
+    },
+    {
+      "text": "The minimum-order rule is out of the CLI adapter",
+      "passed": true,
+      "evidence": "no `< 10` comparison in orders/adapters"
+    },
+    {
+      "text": "The flag arguments are gone (no `flag`/`f2` parameters)",
+      "passed": true,
+      "evidence": "no flag parameters"
+    },
+    {
+      "text": "Commented-out code and the closing comment are removed",
+      "passed": true,
+      "evidence": "removed"
+    },
+    {
+      "text": "Magic numbers are named (a constant for the discount)",
+      "passed": true,
+      "evidence": "constant found"
+    },
+    {
+      "text": "Tests are split and named for behavior (no test_1/test_2; more tests than before)",
+      "passed": true,
+      "evidence": "33 tests"
+    },
+    {
+      "text": "The PR description keeps its original text and gains one refactor block",
+      "passed": true,
+      "evidence": "test` | pass (4 tests) | pass (33 tests) |  The description above this section is still accurate. <!-- refactor:end --> "
+    },
+    {
+      "text": "The plan review came from codex",
+      "passed": true,
+      "evidence": "codex mentioned"
+    }
+  ],
+  "summary": {
+    "passed": 22,
+    "failed": 0,
+    "total": 22,
+    "pass_rate": 1.0
+  }
+}

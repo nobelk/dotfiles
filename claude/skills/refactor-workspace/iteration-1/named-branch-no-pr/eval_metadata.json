@@ -1,0 +1,1 @@
+{"eval_name": "named-branch-no-pr", "prompt": "/refactor feat/ORD-31-quote  (run from the clone while on main; the branch has no PR; codex absent; simulated user accepts every recommended answer)", "assertions": []}

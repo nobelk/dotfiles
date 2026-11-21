@@ -1,0 +1,150 @@
+{
+  "expectations": [
+    {
+      "text": "The plan file review_response_7.md exists in the repo directory",
+      "passed": true,
+      "evidence": "23772 chars"
+    },
+    {
+      "text": "The plan file is never committed",
+      "passed": true,
+      "evidence": "no commit touches it"
+    },
+    {
+      "text": "The grilling round uses the grilling skill's question format (Q-numbered, with a recommended answer)",
+      "passed": false,
+      "evidence": "Q1=True, arrow=False"
+    },
+    {
+      "text": "The plan covers unresolved thread 5001",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5002",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5003",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The plan covers unresolved thread 5004",
+      "passed": true,
+      "evidence": "root_comment_id present"
+    },
+    {
+      "text": "The push landed: the remote PR branch equals local HEAD",
+      "passed": true,
+      "evidence": "remote 47593b1c, local 47593b1c, start c5457180"
+    },
+    {
+      "text": "The push was a fast-forward on top of the reviewed commit (no rewritten history)",
+      "passed": true,
+      "evidence": "start is ancestor: True"
+    },
+    {
+      "text": "The repo's gates (make lint, make test) pass at HEAD",
+      "passed": true,
+      "evidence": "OK"
+    },
+    {
+      "text": "The window-boundary bug is fixed in limiter.py (hit exactly W old expires)",
+      "passed": true,
+      "evidence": "['while hits and hits[0] <= now - self._window:']"
+    },
+    {
+      "text": "Tests were added or changed for the fixes",
+      "passed": true,
+      "evidence": " 1 file changed, 45 insertions(+)"
+    },
+    {
+      "text": "README documents the burst parameter (review summary request)",
+      "passed": true,
+      "evidence": "burst mentioned"
+    },
+    {
+      "text": "Commits follow the repo's convention (Conventional Commits ending in (RATE-12))",
+      "passed": true,
+      "evidence": "['docs(readme): document the burst parameter (RATE-12)', 'fix(limiter): expire hits and idle keys at the window boundary (RATE-12)']"
+    },
+    {
+      "text": "Thread 5001 received exactly one inline reply from the author",
+      "passed": true,
+      "evidence": "You're right. R3 defines the window as `(now - W, now]`, and `hits[0] < now - self._window` kept a hit that was exactly `W` old: with `limit"
+    },
+    {
+      "text": "Thread 5002 received exactly one inline reply from the author",
+      "passed": true,
+      "evidence": "I think this is already covered, though the layout makes it easy to miss. The last statement of `__init__`, just below this hunk, is `self._"
+    },
+    {
+      "text": "Thread 5003 received exactly one inline reply from the author",
+      "passed": true,
+      "evidence": "The growth is real, and it is also a spec violation: R5 says the limiter holds no state for a key with no hits in the current window, and no"
+    },
+    {
+      "text": "Thread 5004 received exactly one inline reply from the author",
+      "passed": true,
+      "evidence": "Could you say which part you mean? The comment is anchored on the `__init__` signature and I can see three candidates: the `burst=0` default"
+    },
+    {
+      "text": "The resolved thread (5005) received no reply",
+      "passed": true,
+      "evidence": "0 replies"
+    },
+    {
+      "text": "The review summary is answered with exactly one top-level comment",
+      "passed": true,
+      "evidence": "@rev-maria, on your review:  > please document `burst` in the README before this merges: right now nobody reading it can tell the parameter "
+    },
+    {
+      "text": "No posted reply still contains the <sha> placeholder",
+      "passed": true,
+      "evidence": "5 replies checked"
+    },
+    {
+      "text": "Replies cite commits that exist on the pushed branch",
+      "passed": true,
+      "evidence": "cited ['47593b1', 'b1f85dd'], on branch ['47593b1', 'b1f85dd']"
+    },
+    {
+      "text": "Thread 5002 (limit validation) is pushed back with the existing check as evidence",
+      "passed": true,
+      "evidence": "I think this is already covered, though the layout makes it easy to miss. The last statement of `__init__`, just below this hunk, is `self._check_arguments(limi"
+    },
+    {
+      "text": "Replies read as the author's own (no tool or model mentions, no signature)",
+      "passed": true,
+      "evidence": "clean"
+    },
+    {
+      "text": "The PR description keeps its original text and gains one review-response block",
+      "passed": true,
+      "evidence": "et in the review thread; none is open yet. - `limit` validation is unchanged: non-positive values already raise `ValueError` (R4). <!-- review-response:end --> "
+    },
+    {
+      "text": "Review was re-requested from the reviewer who requested changes (rev-maria)",
+      "passed": true,
+      "evidence": "['rev-maria']"
+    },
+    {
+      "text": "A publish round was shown before anything was sent",
+      "passed": true,
+      "evidence": "publish round present"
+    },
+    {
+      "text": "The plan's Posted: lines record the reply URLs",
+      "passed": true,
+      "evidence": "5 Posted URLs"
+    }
+  ],
+  "summary": {
+    "passed": 27,
+    "failed": 1,
+    "total": 28,
+    "pass_rate": 0.964
+  }
+}

@@ -1,0 +1,1 @@
+{"eval_name": "plan-only-on-main", "prompt": "/review-response https://github.example.invalid/acme/ratelimit/pull/7  (run from the clone while on main; simulated user chooses plan-only)", "assertions": []}
